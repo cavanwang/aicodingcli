@@ -1,0 +1,54 @@
+"""全局配置：从 .env 加载，启动时校验。"""
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# LLM
+API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "qwen-plus")
+
+# Agent 行为
+SYSTEM_PROMPT: str = os.getenv(
+    "SYSTEM_PROMPT",
+    """你是一个 AI 编程助手，运行在用户的本地终端中。
+
+## 工作流程
+. 先用 list_directory / read_file / search_in_files 了解项目
+. 制定方案，简要告知用户
+. 用 edit_file 精确修改（优先），或 write_file 创建新文件
+. 用 run_command 运行测试验证
+. 如果失败，分析错误并修复
+
+## 规则
+- 修改前必须先 read_file 确认当前内容
+- edit_file 的 old_text 必须与文件内容完全一致（含缩进）
+- 每次只改一处，不要一次改太多
+- 回复简洁，用中文
+""",
+)
+MAX_TOOL_ROUNDS: int = int(os.getenv("MAX_TOOL_ROUNDS", "10"))
+
+# 安全
+WORKSPACE_DIR: Path = Path(os.getenv("WORKSPACE_DIR", ".")).resolve()
+ALLOWED_COMMANDS: set[str] = set(
+    os.getenv("ALLOWED_COMMANDS", "ls,cat,pwd,echo,python,node,npm,pip,git,grep,find,mkdir,touch").split(",")
+)
+
+# 输出限制
+MAX_FILE_READ_CHARS: int = int(os.getenv("MAX_FILE_READ_CHARS", "10000"))
+MAX_COMMAND_OUTPUT_CHARS: int = int(os.getenv("MAX_COMMAND_OUTPUT_CHARS", "5000"))
+COMMAND_TIMEOUT_SECONDS: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "30"))
+
+
+def validate() -> None:
+    """启动前校验，缺少关键配置时立即报错。"""
+    if not API_KEY:
+        raise EnvironmentError("缺少 OPENAI_API_KEY，请检查 .env 文件")
+    if not BASE_URL:
+        raise EnvironmentError("缺少 OPENAI_BASE_URL，请检查 .env 文件")
+    if not WORKSPACE_DIR.exists():
+        raise EnvironmentError(f"工作目录不存在: {WORKSPACE_DIR}")
