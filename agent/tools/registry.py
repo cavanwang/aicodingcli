@@ -11,15 +11,20 @@
 
 from agent.tools.file_ops import read_file, write_file, list_directory
 from agent.tools.edit_file import edit_file
+from agent.tools.batch_edit import batch_edit
 from agent.tools.shell import run_command
 from agent.tools.search import search_in_files
 from agent.tools.find_files import find_files
+from agent.tools.verify import verify_changes
+from agent.tools.generate_tests import generate_tests
 from agent.tools.git_ops import (
     git_checkpoint,
     git_diff,
     git_log,
     git_rollback,
     git_status,
+    analyze_changes,
+    get_related_files,
 )
 
 # ============================================================
@@ -104,6 +109,31 @@ _REGISTRY: list[dict] = [
                     },
                 },
                 "required": ["file_path", "old_text", "new_text"],
+            },
+        },
+    },
+    {
+        "function": batch_edit,
+        "requires_confirm": True,
+        "schema": {
+            "name": "batch_edit",
+            "description": (
+                "批量编辑多个文件：一次提交多个文件的修改操作。"
+                "自动创建 checkpoint，逐个执行编辑，汇总结果。"
+                "适用于跨文件重构、关联修改等场景。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "edits": {
+                        "type": "string",
+                        "description": (
+                            "JSON 数组字符串，每个元素包含 file_path, old_text, new_text。"
+                            '示例: \'[{"file_path": "a.py", "old_text": "x", "new_text": "y"}, ...]\''
+                        ),
+                    }
+                },
+                "required": ["edits"],
             },
         },
     },
@@ -201,10 +231,15 @@ _REGISTRY: list[dict] = [
         "requires_confirm": False,
         "schema": {
             "name": "git_diff",
-            "description": "查看当前工作区未提交的改动（git diff）",
+            "description": "查看当前工作区未提交的改动（git diff）。可按文件过滤。",
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "可选，指定文件路径查看该文件的 diff",
+                    }
+                },
                 "required": [],
             },
         },
@@ -264,6 +299,67 @@ _REGISTRY: list[dict] = [
         "schema": {
             "name": "git_rollback",
             "description": "回滚到上一个 checkpoint，丢弃当前未提交改动",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "function": analyze_changes,
+        "requires_confirm": False,
+        "schema": {
+            "name": "analyze_changes",
+            "description": "分析当前未提交变更的影响范围：变更文件列表、变更类型、行数统计",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "function": get_related_files,
+        "requires_confirm": False,
+        "schema": {
+            "name": "get_related_files",
+            "description": "查找引用了指定文件的其他文件，用于评估修改影响范围",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "要分析的文件路径（含扩展名），如 'agent/core.py'",
+                    }
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "function": verify_changes,
+        "requires_confirm": False,
+        "schema": {
+            "name": "verify_changes",
+            "description": "自动发现变更文件并运行相关测试，验证修改的正确性",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "function": generate_tests,
+        "requires_confirm": True,
+        "schema": {
+            "name": "generate_tests",
+            "description": (
+                "分析当前变更的 Python 文件，自动生成冒烟测试并执行。"
+                "通过 AST 提取函数/类签名，生成导入检查和调用测试。"
+                "适用于修改代码后快速生成验证测试。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {},

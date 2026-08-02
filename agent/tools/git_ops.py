@@ -1,6 +1,8 @@
 """Git 操作工具。"""
 
+import re
 import subprocess
+from pathlib import Path
 import config
 
 
@@ -19,8 +21,10 @@ def _git(args: str) -> str:
         return f"git 执行失败: {e}"
 
 
-def git_diff() -> str:
-    """查看当前未提交的改动。"""
+def git_diff(file_path: str = "") -> str:
+    """查看当前未提交的改动。可按文件过滤。"""
+    if file_path:
+        return _git(f"diff -- {file_path}")
     return _git("diff")
 
 
@@ -44,7 +48,7 @@ def git_checkpoint(message: str = "auto-checkpoint") -> str:
 
 
 def git_rollback() -> str:
-    """回滚到上一个 checkpoint（丢弃工作区改动）。"""
+    """回滚到上一 checkpoint（丢弃工作区改动）。"""
     # 先确认有上一个提交
     log = _git("log --oneline -2")
     if log.count("\n") < 1:
@@ -53,4 +57,146 @@ def git_rollback() -> str:
     _git("checkout HEAD~1 -- .")
     _git("add -A")
     _git('commit -m "[agent] rollback" --allow-empty')
-    return "✅ 已回滚到上一个 checkpoint"
+    return "✅ 已回滚到上一 checkpoint"
+
+
+# ──────────────────────────────────────────────
+# 差异分析工具
+# ──────────────────────────────────────────────
+
+
+def analyze_changes() -> str:
+    """分析当前未提交变更的影响范围。
+
+    返回：变更文件列表、变更类型（新增/修改/删除）、行数统计。
+    """
+    # 获取简短状态
+    status_output = _git("status --porcelain")
+    if status_output == "(无输出)":
+        return "当前无未提交变更"
+
+    lines = status_output.strip().split("\n")
+    files_info = []
+    total_additions = 0
+    total_deletions = 0
+
+    for line in lines:
+        if len(line) < 3:
+            continue
+        status_code = line[:2]
+        file_path = line[2:].strip()
+
+        # 解析状态码
+        if status_code == "??":
+            change_type = "新增(未跟踪)"
+        elif status_code == "A ":
+            change_type = "新增(已暂存)"
+        elif status_code in ("M ", " M"):
+            change_type = "修改"
+        elif status_code in ("D ", " D"):
+            change_type = "删除"
+        elif status_code == "R ":
+            change_type = "重命名"
+        else:
+            change_type = f"变更({status_code.strip()})"
+
+        # 获取该文件的 diff 统计
+        if change_type not in ("新增(未跟踪)", "删除"):
+            diff_stat = _git(f"diff --numstat -- {file_path}")
+            if diff_stat != "(无输出)" and diff_stat and not diff_stat.startswith("git 执行失败"):
+                parts = diff_stat.split()
+                if len(parts) >= 2:
+                    try:
+                        additions = int(parts[0]) if parts[0] != "-" else 0
+                        deletions = int(parts[1]) if parts[1] != "-" else 0
+                        total_additions += additions
+                        total_deletions += deletions
+                    except ValueError:
+                        pass
+
+        files_info.append(f"  [{change_type}] {file_path}")
+
+    result = ["## 变更分析", ""]
+    result.append(f"变更文件数: {len(files_info)}")
+    result.append(f"新增行数: {total_additions}")
+    result.append(f"删除行数: {total_deletions}")
+    result.append("")
+    result.append("文件列表:")
+    result.extend(files_info)
+
+    return "\n".join(result)
+
+
+def get_related_files(file_path: str) -> str:
+    """查找引用了指定文件的其他文件。
+
+    用于评估修改影响范围：如果修改了 X，哪些文件可能需要一起改。
+    """
+    target = Path(file_path)
+    if not target.suffix:
+        return "请指定具体文件路径（需含扩展名）"
+
+    # 提取模块名（不含扩展名）
+    module_name = target.stem
+    suffix = target.suffix
+
+    # 根据文件类型确定搜索模式
+    if suffix in (".py",):
+        # Python: 搜索 import 和 from ... import
+        patterns = [
+            f"import.*{module_name}",
+            f"from.*{module_name}",
+        ]
+        search_glob = "*.py"
+    elif suffix in (".js", ".ts", ".jsx", ".tsx"):
+        # JS/TS: 搜索 import 和 require
+        patterns = [
+            f"import.*{module_name}",
+            f"require.*{module_name}",
+            f"from.*{module_name}",
+        ]
+        search_glob = "*.js"
+        search_glob2 = "*.ts"
+    else:
+        # 通用：搜索文件名
+        patterns = [module_name]
+        search_glob = "*"
+
+    results = []
+    globs = [search_glob]
+    if suffix in (".js", ".ts", ".jsx", ".tsx"):
+        globs = ["*.js", "*.ts", "*.jsx", "*.tsx"]
+    for pattern in patterns:
+        for g in globs:
+            output = _git(f"grep -n '{pattern}' -- '{g}'")
+            if output != "(无输出)" and not output.startswith("git 执行失败"):
+                results.append(output)
+
+    if not results:
+        return f"未找到引用 '{module_name}' 的文件"
+
+    # 合并去重
+    all_lines = set()
+    for r in results:
+        for line in r.split("\n"):
+            line = line.strip()
+            if line and not line.startswith("Binary"):
+                all_lines.add(line)
+
+    # 提取文件名去重
+    related_files = set()
+    for line in sorted(all_lines):
+        # git grep -n 输出格式: file:line:content
+        match = re.match(r'^([^:]+):', line)
+        if match:
+            related_files.add(match.group(1))
+
+    if not related_files:
+        return f"未找到引用 '{module_name}' 的文件"
+
+    result = [f"## 引用 '{module_name}' 的文件", ""]
+    for f in sorted(related_files):
+        result.append(f"  - {f}")
+    result.append(f"\n共 {len(related_files)} 个文件可能受影响")
+
+    return "\n".join(result)
