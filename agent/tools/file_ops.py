@@ -5,9 +5,17 @@ import config
 
 
 def _safe_path(file_path: str) -> Path:
-    """解析相对路径，防止路径穿越。"""
-    resolved = (config.WORKSPACE_DIR / file_path).resolve()
-    if not str(resolved).startswith(str(config.WORKSPACE_DIR)):
+    """解析路径，始终以 WORKSPACE_DIR 为基准目录，防止路径穿越。"""
+    candidate = Path(file_path)
+    workspace_root = config.WORKSPACE_DIR.resolve()
+
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+    else:
+        # 始终以 WORKSPACE_DIR 为基准拼接相对路径
+        resolved = (workspace_root / candidate).resolve()
+
+    if not str(resolved).startswith(str(workspace_root)):
         raise PermissionError(f"路径越界: {file_path}")
     return resolved
 
@@ -36,7 +44,7 @@ def read_file(file_path: str, start_line: int = 1, end_line: int = 0) -> str:
     content = header + numbered
 
     if len(content) > config.MAX_FILE_READ_CHARS:
-        content = content[:config.MAX_FILE_READ_CHARS] + "\n...(截断)"
+        content = content[: config.MAX_FILE_READ_CHARS] + "\n...(截断)"
     return content
 
 

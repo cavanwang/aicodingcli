@@ -5,6 +5,7 @@ from openai import OpenAI
 from rich.console import Console
 
 import config
+from agent.recovery import RecoveryManager
 from agent.tools import TOOL_FUNCTIONS, TOOLS_SCHEMA, CONFIRM_TOOLS
 from agent.project import build_context
 
@@ -28,9 +29,21 @@ class Agent:
         self._max_rounds = max_rounds
         self._confirm = confirm_fn
         self._max_result_len = (
-            max_result_len if max_result_len is not None else config.MAX_TOOL_RESULT_CHARS
+            max_result_len
+            if max_result_len is not None
+            else config.MAX_TOOL_RESULT_CHARS
         )
         self._messages: list[dict] = [{"role": "system", "content": system_prompt}]
+
+        # 自愈管理器：接管重试控制、历史记录、回滚保护
+        def _do_rollback() -> str:
+            fn = TOOL_FUNCTIONS.get("git_rollback")
+            return fn() if fn else "无可用回滚工具"
+
+        self._recovery = RecoveryManager(
+            max_attempts=3,
+            rollback_fn=_do_rollback,
+        )
 
     @property
     def messages(self) -> list[dict]:
@@ -172,13 +185,19 @@ class Agent:
                 result = f"未知工具: {func_name}"
             else:
                 try:
-                    if func_name in {"edit_file", "write_file", "run_command"} and func_name not in {
+                    if func_name in {
+                        "edit_file",
+                        "write_file",
+                        "run_command",
+                    } and func_name not in {
                         "git_checkpoint",
                         "git_rollback",
                     }:
                         checkpoint_func = TOOL_FUNCTIONS.get("git_checkpoint")
                         if checkpoint_func is not None:
-                            checkpoint_result = checkpoint_func(message="before-tool-change")
+                            checkpoint_result = checkpoint_func(
+                                message="before-tool-change"
+                            )
                             console.print(
                                 f"  📝 [yellow]{checkpoint_result}[/]",
                                 highlight=False,
@@ -189,6 +208,30 @@ class Agent:
                     result = f"🚫 权限错误: {e}"
                 except Exception as e:
                     result = f"❌ 执行出错: {e}"
+
+            # ── 错误自愈：run_command 失败时进入修复循环 ──
+            if func_name == "run_command" and RecoveryManager.is_failure(result):
+                action = self._recovery.handle_failure(func_name, result)
+                recovery_prompt = action["recovery_prompt"]
+
+                if action["exhausted"]:
+                    console.print(
+                        f"  🔙 [yellow]自动回滚: {action['rollback_result']}[/]",
+                        highlight=False,
+                    )
+                console.print(f"  🛠️ [magenta]{recovery_prompt}[/]", highlight=False)
+                self._append_tool_result(
+                    tc["id"], f"{result}\n\n[error_recovery]\n{recovery_prompt}"
+                )
+
+                if not action["exhausted"]:
+                    self._messages.append(
+                        {
+                            "role": "system",
+                            "content": RecoveryManager.build_retry_guidance(),
+                        }
+                    )
+                continue
 
             # 在 _execute_tools 中，结果太长时截断
             if len(result) > self._max_result_len:
