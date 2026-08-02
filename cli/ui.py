@@ -1,11 +1,14 @@
 """CLI 交互界面。"""
 
+import argparse
+
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
 import config
 from agent import create_agent
+from agent.logger import enable_debug_mode
 
 console = Console()
 
@@ -18,7 +21,15 @@ def _confirm_tool(func_name: str, func_args: dict) -> bool:
 
 def run() -> None:
     """启动交互式 REPL。"""
-    agent = create_agent(confirm_fn=_confirm_tool)
+    parser = argparse.ArgumentParser(description="qcoder-cli AI 编程助手")
+    parser.add_argument("--debug", action="store_true", help="启用调试输出模式")
+    args = parser.parse_args()
+
+    if args.debug:
+        enable_debug_mode()
+        console.print("[dim]🔍 调试模式已启用[/]")
+
+    agent = create_agent(confirm_fn=_confirm_tool, debug=args.debug)
 
     console.print(Panel(
         f"[bold]🤖 qcoder-cli[/bold] — AI 编程助手\n"
@@ -38,6 +49,10 @@ def run() -> None:
         if not user_input:
             continue
         if user_input.lower() in ("quit", "exit", "q"):
+            # 保存执行轨迹
+            if agent.tracer.event_count > 0:
+                trace_path = agent.tracer.save()
+                console.print(f"[dim]📝 执行轨迹已保存: {trace_path}[/]")
             console.print("[dim]👋 再见！[/]")
             break
 

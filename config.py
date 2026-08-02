@@ -56,6 +56,14 @@ MAX_COMMAND_OUTPUT_CHARS: int = int(os.getenv("MAX_COMMAND_OUTPUT_CHARS", "5000"
 MAX_TOOL_RESULT_CHARS: int = int(os.getenv("MAX_TOOL_RESULT_CHARS", "4000"))
 COMMAND_TIMEOUT_SECONDS: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "30"))
 
+# 日志
+LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_DIR: Path = Path.home() / ".aicoding" / "logs"
+
+# 历史压缩
+COMPRESS_THRESHOLD: int = int(os.getenv("COMPRESS_THRESHOLD", "30"))
+COMPRESS_KEEP_RECENT: int = int(os.getenv("COMPRESS_KEEP_RECENT", "10"))
+
 
 def validate() -> None:
     """启动前校验，缺少关键配置时立即报错。"""

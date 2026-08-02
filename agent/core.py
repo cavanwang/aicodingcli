@@ -1,15 +1,19 @@
 """Agent 实体：封装 client、工具、记忆、流式循环。"""
 
 import json
+import time
 from openai import OpenAI
 from rich.console import Console
 
 import config
+from agent.logger import get_logger
 from agent.recovery import RecoveryManager
 from agent.tools import TOOL_FUNCTIONS, TOOLS_SCHEMA, CONFIRM_TOOLS
 from agent.project import build_context
+from agent.tracer import ExecutionTracer
 
 console = Console()
+logger = get_logger(__name__)
 
 
 class Agent:
@@ -23,11 +27,13 @@ class Agent:
         max_rounds: int = 10,
         confirm_fn=None,
         max_result_len: int | None = None,
+        debug: bool = False,
     ):
         self._client = client
         self._model = model
         self._max_rounds = max_rounds
         self._confirm = confirm_fn
+        self._debug = debug
         self._max_result_len = (
             max_result_len
             if max_result_len is not None
@@ -45,13 +51,151 @@ class Agent:
             rollback_fn=_do_rollback,
         )
 
+        # 执行轨迹记录器
+        self._tracer = ExecutionTracer()
+
     @property
     def messages(self) -> list[dict]:
         return self._messages
 
+    @property
+    def tracer(self) -> ExecutionTracer:
+        """获取执行轨迹记录器。"""
+        return self._tracer
+
     def reset(self) -> None:
         """清空对话历史，只保留 system prompt。"""
         self._messages = [self._messages[0]]
+
+    # ──────────────────────────────────────────────
+    # 历史压缩
+    # ──────────────────────────────────────────────
+
+    def _find_compress_boundary(self, keep_recent: int) -> int:
+        """找到安全的压缩边界索引，确保不拆分 tool_call/tool 对。
+
+        返回：从该索引开始的消息可以被压缩（之前的消息将被替换为摘要）。
+        边界保证：不会截断 assistant(tool_calls) 和对应的 tool(result)。
+        """
+        msgs = self._messages
+        total = len(msgs)
+
+        if total <= keep_recent + 1:
+            return 0  # 消息太少，不需要压缩
+
+        # 从后往前找安全边界：跳过 tool 消息及其对应的 assistant(tool_calls)
+        boundary = total - keep_recent
+
+        # 向前扫描，确保不会截断工具调用对
+        while boundary > 1:  # 至少保留 system prompt
+            msg = msgs[boundary]
+            if msg["role"] == "tool":
+                # 找到对应的 assistant(tool_calls) 消息，一起保留
+                boundary -= 1
+                while boundary > 1 and msgs[boundary]["role"] != "assistant":
+                    boundary -= 1
+                # 现在 boundary 指向 assistant(tool_calls)，再往前一位
+                boundary -= 1
+                continue
+            elif msg["role"] == "assistant" and msg.get("tool_calls"):
+                # assistant 有 tool_calls，检查后面的 tool 结果是否都在保留范围
+                # 如果是，安全；如果不是，需要往前找
+                next_idx = boundary + 1
+                has_orphan_tool = False
+                while next_idx < total and msgs[next_idx]["role"] == "tool":
+                    if next_idx < total - keep_recent:
+                        has_orphan_tool = True
+                    next_idx += 1
+                if has_orphan_tool:
+                    boundary -= 1
+                    continue
+            break
+
+        return max(1, boundary)  # 至少保留 system prompt (index 0)
+
+    def _build_summary_text(self, messages_to_compress: list[dict]) -> str:
+        """将旧消息构建为可读的摘要文本（不调用 LLM，纯本地摘要）。"""
+        summary_parts = []
+        user_msgs = [m for m in messages_to_compress if m["role"] == "user"]
+        assistant_msgs = [m for m in messages_to_compress if m["role"] == "assistant"]
+        tool_msgs = [m for m in messages_to_compress if m["role"] == "tool"]
+
+        # 提取用户请求摘要
+        for m in user_msgs:
+            content = m.get("content", "")
+            if content:
+                summary_parts.append(f"用户请求: {content[:200]}")
+
+        # 提取助手操作摘要
+        tool_calls_summary = []
+        for m in assistant_msgs:
+            if m.get("tool_calls"):
+                for tc in m["tool_calls"]:
+                    fn = tc.get("function", {})
+                    name = fn.get("name", "unknown")
+                    args_str = fn.get("arguments", "{}")
+                    try:
+                        args = json.loads(args_str)
+                        # 提取关键参数
+                        key_args = {k: str(v)[:50] for k, v in list(args.items())[:3]}
+                        tool_calls_summary.append(f"{name}({key_args})")
+                    except json.JSONDecodeError:
+                        tool_calls_summary.append(name)
+            # 纯文本回复
+            content = m.get("content") or ""
+            if content and not m.get("tool_calls"):
+                summary_parts.append(f"助手回复: {content[:200]}")
+
+        if tool_calls_summary:
+            summary_parts.append(f"执行工具: {', '.join(tool_calls_summary[:20])}")
+
+        # 工具结果摘要
+        if tool_msgs:
+            summary_parts.append(f"工具结果: {len(tool_msgs)} 条")
+
+        return "\n".join(summary_parts) if summary_parts else "(无有效历史)"
+
+    def compress_history(self) -> bool:
+        """压缩对话历史：将旧消息替换为摘要。
+
+        返回 True 表示执行了压缩，False 表示不需要压缩。
+        """
+        threshold = config.COMPRESS_THRESHOLD
+        keep_recent = config.COMPRESS_KEEP_RECENT
+
+        if len(self._messages) <= threshold:
+            return False
+
+        boundary = self._find_compress_boundary(keep_recent)
+        if boundary <= 1:
+            return False  # 没有可压缩的消息
+
+        # 提取需要压缩的消息（跳过 system prompt）
+        to_compress = self._messages[1:boundary]
+        if not to_compress:
+            return False
+
+        # 构建摘要
+        summary_text = self._build_summary_text(to_compress)
+        compressed_msg = {
+            "role": "system",
+            "content": (
+                "[历史对话摘要]\n"
+                "以下是之前对话的摘要，请参考：\n\n"
+                f"{summary_text}\n\n"
+                "[摘要结束]"
+            ),
+        }
+
+        # 保留：system prompt + 摘要 + 最近的消息
+        self._messages = [self._messages[0], compressed_msg] + self._messages[boundary:]
+
+        logger.info(
+            "历史压缩: %d 条消息压缩为摘要，保留最近 %d 条",
+            len(to_compress),
+            len(self._messages) - 2,
+        )
+        return True
 
     # ──────────────────────────────────────────────
     # 核心对话方法
@@ -60,17 +204,32 @@ class Agent:
     def chat(self, user_message: str) -> str:
         """处理一轮用户输入，流式输出，返回最终文本回复。"""
         self._messages.append({"role": "user", "content": user_message})
+        logger.info("用户输入: %s", user_message[:100])
 
-        # ===== DEBUG START =====
-        print(f"\n[DEBUG] TOOLS_SCHEMA 数量: {len(TOOLS_SCHEMA)}")
-        print(
-            f"[DEBUG] 第一个工具: {TOOLS_SCHEMA[0]['function']['name'] if TOOLS_SCHEMA else '空!'}"
+        # 自动压缩：消息数超过阈值时压缩旧消息
+        if self.compress_history():
+            logger.info("对话历史已自动压缩")
+            if self._debug:
+                console.print(
+                    f"  [dim]📦 历史已压缩，当前消息数: {len(self._messages)}[/]",
+                    highlight=False,
+                )
+
+        logger.debug(
+            "对话状态: tools=%d, messages=%d",
+            len(TOOLS_SCHEMA), len(self._messages),
         )
-        print(f"[DEBUG] messages 数量: {len(self._messages)}")
-        print(f"[DEBUG] system prompt 前100字: {self._messages[0]['content'][:100]}")
-        # ===== DEBUG END =====
 
-        for _ in range(self._max_rounds):
+        for round_idx in range(self._max_rounds):
+            logger.debug("LLM 请求: round=%d, messages=%d", round_idx + 1, len(self._messages))
+            self._tracer.record_round(round_idx + 1, len(self._messages))
+
+            if self._debug:
+                console.print(
+                    f"\n  [dim]🔄 第 {round_idx + 1} 轮 | 消息数: {len(self._messages)}[/]",
+                    highlight=False,
+                )
+
             stream = self._client.chat.completions.create(
                 model=self._model,
                 messages=self._messages,
@@ -91,6 +250,7 @@ class Agent:
             console.print()  # 流式打印后换行
             return content
 
+        logger.info("达到最大工具调用轮数 (%d)，停止执行", self._max_rounds)
         return "⚠️ 达到最大工具调用轮数，已停止。"
 
     # ──────────────────────────────────────────────
@@ -172,10 +332,19 @@ class Agent:
                 f"\n  🔧 [bold cyan]{func_name}[/]({func_args})",
                 highlight=False,
             )
+            logger.info("工具调用: %s(%s)", func_name, func_args)
+
+            if self._debug:
+                console.print(
+                    f"  [dim]📎 参数详情: {json.dumps(func_args, ensure_ascii=False, indent=2)}[/]",
+                    highlight=False,
+                )
 
             # 用户确认：查注册表，不 hardcode 工具名
             if self._confirm and func_name in CONFIRM_TOOLS:
                 if not self._confirm(func_name, func_args):
+                    logger.info("用户拒绝操作: %s", func_name)
+                    self._tracer.record_user_rejected(func_name)
                     self._append_tool_result(tc["id"], "⛔ 用户拒绝了该操作")
                     continue
 
@@ -183,7 +352,10 @@ class Agent:
             func = TOOL_FUNCTIONS.get(func_name)
             if func is None:
                 result = f"未知工具: {func_name}"
+                logger.warning("未知工具: %s", func_name)
+                self._tracer.record_tool_call(func_name, func_args, result, 0, success=False)
             else:
+                start_time = time.time()
                 try:
                     if func_name in {
                         "edit_file",
@@ -204,17 +376,43 @@ class Agent:
                             )
 
                     result = func(**func_args)
+                    duration_ms = (time.time() - start_time) * 1000
+                    self._tracer.record_tool_call(func_name, func_args, result, duration_ms, success=True)
                 except PermissionError as e:
                     result = f"🚫 权限错误: {e}"
+                    duration_ms = (time.time() - start_time) * 1000
+                    logger.warning("权限错误: %s - %s", func_name, e)
+                    self._tracer.record_tool_call(func_name, func_args, result, duration_ms, success=False)
                 except Exception as e:
                     result = f"❌ 执行出错: {e}"
+                    duration_ms = (time.time() - start_time) * 1000
+                    logger.error("工具执行异常: %s - %s", func_name, e, exc_info=True)
+                    self._tracer.record_tool_call(func_name, func_args, result, duration_ms, success=False)
 
             # ── 错误自愈：run_command 失败时进入修复循环 ──
             if func_name == "run_command" and RecoveryManager.is_failure(result):
                 action = self._recovery.handle_failure(func_name, result)
                 recovery_prompt = action["recovery_prompt"]
+                logger.warning(
+                    "命令执行失败，触发自愈 (attempt=%d/%d, error_type=%s)",
+                    self._recovery.attempts, self._recovery.max_attempts,
+                    action["classification"]["error_type"],
+                )
+                self._tracer.record_recovery(
+                    func_name,
+                    action["classification"]["error_type"],
+                    action["classification"],
+                    self._recovery.attempts,
+                    self._recovery.max_attempts,
+                    action["exhausted"],
+                )
 
                 if action["exhausted"]:
+                    logger.warning(
+                        "自愈达到上限 (%d 次)，执行自动回滚",
+                        self._recovery.max_attempts,
+                    )
+                    self._tracer.record_rollback(func_name, action["rollback_result"])
                     console.print(
                         f"  🔙 [yellow]自动回滚: {action['rollback_result']}[/]",
                         highlight=False,
@@ -243,6 +441,13 @@ class Agent:
             display = result[:200] + "..." if len(result) > 200 else result
             console.print(f"  📋 [green]{display}[/]", highlight=False)
 
+            if self._debug:
+                console.print(
+                    f"  [dim]📄 结果长度: {len(result)} 字符[/]",
+                    highlight=False,
+                )
+                logger.debug("工具结果 [%s]: %s", func_name, result[:500])
+
             self._append_tool_result(tc["id"], result)
 
     def _append_tool_result(self, tool_call_id: str, result: str) -> None:
@@ -260,7 +465,7 @@ class Agent:
 # ──────────────────────────────────────────────────
 
 
-def create_agent(confirm_fn=None) -> Agent:
+def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
     """读取配置，创建并返回一个就绪的 Agent 实例。"""
     config.validate()
 
@@ -276,4 +481,5 @@ def create_agent(confirm_fn=None) -> Agent:
         max_rounds=config.MAX_TOOL_ROUNDS,
         confirm_fn=confirm_fn,
         max_result_len=config.MAX_TOOL_RESULT_CHARS,
+        debug=debug,
     )
