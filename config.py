@@ -23,6 +23,15 @@ SYSTEM_PROMPT: str = os.getenv(
 . 用 run_command 运行测试验证
 . 如果失败，分析错误并修复
 
+## 错误自愈循环（核心智能）
+- 看到命令/测试/构建失败时，不要直接停下
+- 先读取报错内容，定位根因
+- 结合相关代码和上下文，分析是代码问题、配置问题、依赖问题，还是工具调用问题
+- 进行最小范围修复，然后重新执行验证
+- 如果修复后仍失败，继续迭代，直到问题被解决或明确说明阻塞原因
+- 目标是“自动修复并重试”，而不是“遇错即停”
+- 最多重试 5 次，仍失败则告知用户具体原因。
+
 ## 规则
 - 修改前必须先 read_file 确认当前内容
 - edit_file 的 old_text 必须与文件内容完全一致（含缩进）
@@ -35,12 +44,16 @@ MAX_TOOL_ROUNDS: int = int(os.getenv("MAX_TOOL_ROUNDS", "10"))
 # 安全
 WORKSPACE_DIR: Path = Path(os.getenv("WORKSPACE_DIR", ".")).resolve()
 ALLOWED_COMMANDS: set[str] = set(
-    os.getenv("ALLOWED_COMMANDS", "ls,cat,pwd,echo,python,node,npm,pip,git,grep,find,mkdir,touch").split(",")
+    os.getenv(
+        "ALLOWED_COMMANDS",
+        "ls,cat,pwd,echo,python,node,npm,pip,git,grep,find,mkdir,touch",
+    ).split(",")
 )
 
 # 输出限制
 MAX_FILE_READ_CHARS: int = int(os.getenv("MAX_FILE_READ_CHARS", "10000"))
 MAX_COMMAND_OUTPUT_CHARS: int = int(os.getenv("MAX_COMMAND_OUTPUT_CHARS", "5000"))
+MAX_TOOL_RESULT_CHARS: int = int(os.getenv("MAX_TOOL_RESULT_CHARS", "4000"))
 COMMAND_TIMEOUT_SECONDS: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "30"))
 
 

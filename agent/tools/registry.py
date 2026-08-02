@@ -14,7 +14,13 @@ from agent.tools.edit_file import edit_file
 from agent.tools.shell import run_command
 from agent.tools.search import search_in_files
 from agent.tools.find_files import find_files
-from agent.tools.git_ops import git_diff, git_log, git_status
+from agent.tools.git_ops import (
+    git_checkpoint,
+    git_diff,
+    git_log,
+    git_rollback,
+    git_status,
+)
 
 # ============================================================
 # 注册表（唯一需要维护的地方）
@@ -234,6 +240,37 @@ _REGISTRY: list[dict] = [
             },
         },
     },
+    {
+        "function": git_checkpoint,
+        "requires_confirm": False,
+        "schema": {
+            "name": "git_checkpoint",
+            "description": "为当前工作区创建一个 checkpoint 提交，便于后续回滚",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "checkpoint 的说明信息，默认 'auto-checkpoint'",
+                    }
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "function": git_rollback,
+        "requires_confirm": True,
+        "schema": {
+            "name": "git_rollback",
+            "description": "回滚到上一个 checkpoint，丢弃当前未提交改动",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 # ============================================================
@@ -249,7 +286,5 @@ TOOLS_SCHEMA: list[dict] = [
 
 # 需要用户确认的工具名集合（自动从注册表生成，无需手动维护）
 CONFIRM_TOOLS: set[str] = {
-    item["schema"]["name"]
-    for item in _REGISTRY
-    if item.get("requires_confirm", False)
+    item["schema"]["name"] for item in _REGISTRY if item.get("requires_confirm", False)
 }

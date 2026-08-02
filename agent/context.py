@@ -1,21 +1,26 @@
-"""对话历史管理：防止 token 爆炸。"""
+# agent/context.py
+import tiktoken
 
-MAX_MESSAGES = 40  # 超过后截断
+class ContextManager:
+    def __init__(self, max_tokens: int = 120_000):
+        self._max_tokens = max_tokens
+        self._encoder = tiktoken.encoding_for_model("gpt-4o")
 
+    def count(self, messages: list[dict]) -> int:
+        return sum(
+            len(self._encoder.encode(m.get("content") or ""))
+            for m in messages
+        )
 
-def trim_messages(messages: list[dict]) -> list[dict]:
-    """保留 system + 最近 N 条，中间用摘要替代。"""
-    if len(messages) <= MAX_MESSAGES:
-        return messages
+    def trim(self, messages: list[dict]) -> list[dict]:
+        """保留 system + 最近 N 轮，中间做摘要。"""
+        system = messages[0]
+        history = messages[1:]
 
-    system = messages[0]
-    recent = messages[-(MAX_MESSAGES - 2):]
+        while self.count([system] + history) > self._max_tokens:
+            # 策略：把最早的几轮压缩成一条摘要
+            oldest = history[:4]  # 取最早 2 轮(user+assistant)
+            summary = self._summarize(oldest)
+            history = [{"role": "user", "content": f"[历史摘要] {summary}"}] + history[4:]
 
-    # 中间部分压缩为一条摘要
-    trimmed_count = len(messages) - 1 - len(recent)
-    summary_msg = {
-        "role": "user",
-        "content": f"[系统提示：之前已有 {trimmed_count} 条对话被省略，请基于当前上下文继续。]",
-    }
-
-    return [system, summary_msg] + recent
+        return [system] + history

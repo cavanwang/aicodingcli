@@ -6,6 +6,7 @@ from rich.console import Console
 
 import config
 from agent.tools import TOOL_FUNCTIONS, TOOLS_SCHEMA, CONFIRM_TOOLS
+from agent.project import build_context
 
 console = Console()
 
@@ -20,14 +21,16 @@ class Agent:
         system_prompt: str,
         max_rounds: int = 10,
         confirm_fn=None,
+        max_result_len: int | None = None,
     ):
         self._client = client
         self._model = model
         self._max_rounds = max_rounds
         self._confirm = confirm_fn
-        self._messages: list[dict] = [
-            {"role": "system", "content": system_prompt}
-        ]
+        self._max_result_len = (
+            max_result_len if max_result_len is not None else config.MAX_TOOL_RESULT_CHARS
+        )
+        self._messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
     @property
     def messages(self) -> list[dict]:
@@ -44,6 +47,15 @@ class Agent:
     def chat(self, user_message: str) -> str:
         """处理一轮用户输入，流式输出，返回最终文本回复。"""
         self._messages.append({"role": "user", "content": user_message})
+
+        # ===== DEBUG START =====
+        print(f"\n[DEBUG] TOOLS_SCHEMA 数量: {len(TOOLS_SCHEMA)}")
+        print(
+            f"[DEBUG] 第一个工具: {TOOLS_SCHEMA[0]['function']['name'] if TOOLS_SCHEMA else '空!'}"
+        )
+        print(f"[DEBUG] messages 数量: {len(self._messages)}")
+        print(f"[DEBUG] system prompt 前100字: {self._messages[0]['content'][:100]}")
+        # ===== DEBUG END =====
 
         for _ in range(self._max_rounds):
             stream = self._client.chat.completions.create(
@@ -106,9 +118,11 @@ class Agent:
                         if tc_delta.function.arguments:
                             entry["arguments"] += tc_delta.function.arguments
 
-        tool_calls = [
-            tool_calls_map[i] for i in sorted(tool_calls_map.keys())
-        ] if tool_calls_map else []
+        tool_calls = (
+            [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
+            if tool_calls_map
+            else []
+        )
 
         return collected_content, tool_calls
 
@@ -116,9 +130,7 @@ class Agent:
     # 构造完整 assistant message
     # ──────────────────────────────────────────────
 
-    def _build_assistant_message(
-        self, content: str, tool_calls: list[dict]
-    ) -> dict:
+    def _build_assistant_message(self, content: str, tool_calls: list[dict]) -> dict:
         msg: dict = {"role": "assistant", "content": content or None}
         if tool_calls:
             msg["tool_calls"] = [
@@ -160,11 +172,29 @@ class Agent:
                 result = f"未知工具: {func_name}"
             else:
                 try:
+                    if func_name in {"edit_file", "write_file", "run_command"} and func_name not in {
+                        "git_checkpoint",
+                        "git_rollback",
+                    }:
+                        checkpoint_func = TOOL_FUNCTIONS.get("git_checkpoint")
+                        if checkpoint_func is not None:
+                            checkpoint_result = checkpoint_func(message="before-tool-change")
+                            console.print(
+                                f"  📝 [yellow]{checkpoint_result}[/]",
+                                highlight=False,
+                            )
+
                     result = func(**func_args)
                 except PermissionError as e:
                     result = f"🚫 权限错误: {e}"
                 except Exception as e:
                     result = f"❌ 执行出错: {e}"
+
+            # 在 _execute_tools 中，结果太长时截断
+            if len(result) > self._max_result_len:
+                result = result[: self._max_result_len] + (
+                    f"\n... (共 {len(result)} 字符，已截断)"
+                )
 
             # 打印摘要
             display = result[:200] + "..." if len(result) > 200 else result
@@ -173,16 +203,19 @@ class Agent:
             self._append_tool_result(tc["id"], result)
 
     def _append_tool_result(self, tool_call_id: str, result: str) -> None:
-        self._messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": result,
-        })
+        self._messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": result,
+            }
+        )
 
 
 # ──────────────────────────────────────────────────
 # 工厂函数
 # ──────────────────────────────────────────────────
+
 
 def create_agent(confirm_fn=None) -> Agent:
     """读取配置，创建并返回一个就绪的 Agent 实例。"""
@@ -196,7 +229,8 @@ def create_agent(confirm_fn=None) -> Agent:
     return Agent(
         client=client,
         model=config.MODEL_NAME,
-        system_prompt=config.SYSTEM_PROMPT,
+        system_prompt=config.SYSTEM_PROMPT + "\n\n" + build_context(),
         max_rounds=config.MAX_TOOL_ROUNDS,
         confirm_fn=confirm_fn,
+        max_result_len=config.MAX_TOOL_RESULT_CHARS,
     )
