@@ -5,3 +5,4 @@ __pycache__/
 .aicoding_recovery/
 node_modules/
 out/
+*.vsix
