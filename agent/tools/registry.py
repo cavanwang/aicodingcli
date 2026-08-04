@@ -17,6 +17,8 @@ from agent.tools.search import search_in_files
 from agent.tools.find_files import find_files
 from agent.tools.verify import verify_changes
 from agent.tools.generate_tests import generate_tests
+from agent.tools.task_tools import create_plan, next_step, complete_step, plan_status
+from agent.tools.memory_tools import update_memory, review_changes
 from agent.tools.git_ops import (
     git_checkpoint,
     git_diff,
@@ -359,6 +361,141 @@ _REGISTRY: list[dict] = [
                 "分析当前变更的 Python 文件，自动生成冒烟测试并执行。"
                 "通过 AST 提取函数/类签名，生成导入检查和调用测试。"
                 "适用于修改代码后快速生成验证测试。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    # ──────────────────────────────────────────────
+    # 任务规划
+    # ──────────────────────────────────────────────
+    {
+        "function": create_plan,
+        "requires_confirm": False,
+        "schema": {
+            "name": "create_plan",
+            "description": (
+                "创建任务执行计划：将复杂任务拆解为有序子任务。"
+                "适用于涉及 3 个以上步骤的复杂任务。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {
+                        "type": "string",
+                        "description": "任务目标描述",
+                    },
+                    "subtasks": {
+                        "type": "string",
+                        "description": (
+                            "子任务列表，JSON 数组格式。"
+                            '示例: \'["分析需求", "修改代码", "运行测试"]\''
+                        ),
+                    },
+                },
+                "required": ["goal", "subtasks"],
+            },
+        },
+    },
+    {
+        "function": next_step,
+        "requires_confirm": False,
+        "schema": {
+            "name": "next_step",
+            "description": "获取下一个待执行子任务，并标记为进行中",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "function": complete_step,
+        "requires_confirm": False,
+        "schema": {
+            "name": "complete_step",
+            "description": "标记指定子任务为完成状态",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "step_id": {
+                        "type": "integer",
+                        "description": "子任务序号（从 1 开始）",
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "执行结果摘要，默认空",
+                    },
+                },
+                "required": ["step_id"],
+            },
+        },
+    },
+    {
+        "function": plan_status,
+        "requires_confirm": False,
+        "schema": {
+            "name": "plan_status",
+            "description": "查看当前任务计划的进度详情",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    # ──────────────────────────────────────────────
+    # 记忆与审查
+    # ──────────────────────────────────────────────
+    {
+        "function": update_memory,
+        "requires_confirm": False,
+        "schema": {
+            "name": "update_memory",
+            "description": (
+                "更新代码库记忆：记录文件职责、关键接口或项目事实。"
+                "用于跨会话保持对代码库的理解。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "操作类型: summary | interfaces | fact | remove",
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": "文件路径（用于 summary/interfaces 操作）",
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "摘要内容（用于 summary 操作）",
+                    },
+                    "interfaces": {
+                        "type": "string",
+                        "description": "接口列表，逗号分隔（用于 interfaces 操作）",
+                    },
+                    "fact": {
+                        "type": "string",
+                        "description": "项目事实（用于 fact 操作）",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "function": review_changes,
+        "requires_confirm": False,
+        "schema": {
+            "name": "review_changes",
+            "description": (
+                "审查当前变更质量：分析变更范围、运行相关测试、评估风险等级。"
+                "适用于一批修改完成后做最终检查。"
             ),
             "parameters": {
                 "type": "object",

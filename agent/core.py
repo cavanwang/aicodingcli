@@ -8,7 +8,11 @@ from rich.console import Console
 import config
 from agent.logger import get_logger
 from agent.recovery import RecoveryManager
+from agent.task_planner import TaskPlanner
+from agent.memory import CodeMemory
 from agent.tools import TOOL_FUNCTIONS, TOOLS_SCHEMA, CONFIRM_TOOLS
+from agent.tools.task_tools import set_planner
+from agent.tools.memory_tools import set_memory
 from agent.project import build_context
 from agent.tracer import ExecutionTracer
 
@@ -51,6 +55,24 @@ class Agent:
             rollback_fn=_do_rollback,
         )
 
+        # 任务规划器
+        self._planner = TaskPlanner()
+        set_planner(self._planner)
+
+        # 代码记忆
+        self._memory = CodeMemory.load()
+        # 启动时检测文件变更，清理过期记忆
+        changes = self._memory.refresh_from_scan()
+        if changes["deleted_files"] or changes["modified_files"]:
+            logger.info(
+                "记忆刷新: 新增=%d, 删除=%d, 修改=%d",
+                len(changes["new_files"]),
+                len(changes["deleted_files"]),
+                len(changes["modified_files"]),
+            )
+            self._memory.save()
+        set_memory(self._memory)
+
         # 执行轨迹记录器
         self._tracer = ExecutionTracer()
 
@@ -62,6 +84,16 @@ class Agent:
     def tracer(self) -> ExecutionTracer:
         """获取执行轨迹记录器。"""
         return self._tracer
+
+    @property
+    def planner(self) -> TaskPlanner:
+        """获取任务规划器。"""
+        return self._planner
+
+    @property
+    def memory(self) -> CodeMemory:
+        """获取代码记忆。"""
+        return self._memory
 
     def reset(self) -> None:
         """清空对话历史，只保留 system prompt。"""

@@ -53,6 +53,15 @@ def run() -> None:
             if agent.tracer.event_count > 0:
                 trace_path = agent.tracer.save()
                 console.print(f"[dim]📝 执行轨迹已保存: {trace_path}[/]")
+            # 保存代码记忆
+            if agent.memory.file_count > 0:
+                mem_path = agent.memory.save()
+                console.print(f"[dim]🧠 代码记忆已保存: {mem_path}[/]")
+            # 保存任务计划
+            if agent.planner.current_plan is not None:
+                plan_path = agent.planner.save()
+                if plan_path:
+                    console.print(f"[dim]📋 任务计划已保存: {plan_path}[/]")
             console.print("[dim]👋 再见！[/]")
             break
 
