@@ -78,7 +78,9 @@ system prompt 全局写死在 `config.py`，无法按项目定制。
 - `/clear` — 清空对话
 - `/help` — 显示帮助
 - `/init` — 初始化项目配置
-- `/usage` — 查看 Token 用量
+- `/review` — 对当前变更做代码审查
+- `/doctor` — 诊断环境健康状态
+- `/status` — 显示当前状态
 - `/quit` — 退出
 
 ### 当前差距
@@ -96,6 +98,9 @@ system prompt 全局写死在 `config.py`，无法按项目定制。
 - `/compact` — 手动触发历史压缩
 - `/cost` — 显示本次会话 Token 用量和费用估算
 - `/clear` — 清空对话历史
+- `/status` — 显示当前状态（模型、目录、消息数、Token、计划进度、Todo 进度）
+- `/review` — 手动触发变更审查（复用 ChangeReviewer）
+- `/doctor` — 诊断环境健康状态（API 连通性、key 有效性、沙箱可用性）
 - `/usage` — 显示历史用量（最近 7 天）
 - `/todo` — 显示当前 Todo 列表
 - `/plan` — 显示当前任务计划
@@ -235,7 +240,7 @@ system prompt 全局写死在 `config.py`，无法按项目定制。
 
 ## 里程碑
 
-- **M1**：Slash 命令可用 — `/help` `/compact` `/cost` `/clear` `/todo` `/init`
+- **M1**：Slash 命令可用 — `/help` `/compact` `/cost` `/clear` `/status` `/review` `/doctor` `/todo` `/init`
 - **M2**：项目配置系统 — `.agent.md` 自动加载，项目级定制
 - **M3**：费用可追踪 — 退出时显示费用估算
 - **M4**：验证护栏完成 — JSON 审查 + rollback CLI

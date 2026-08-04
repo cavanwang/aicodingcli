@@ -9,6 +9,7 @@ from rich.panel import Panel
 import config
 from agent import create_agent
 from agent.logger import enable_debug_mode
+from cli.commands import dispatch_command
 
 console = Console()
 
@@ -35,7 +36,7 @@ def run() -> None:
         f"[bold]🤖 qcoder-cli[/bold] — AI 编程助手\n"
         f"模型: [cyan]{config.MODEL_NAME}[/]\n"
         f"工作目录: [cyan]{config.WORKSPACE_DIR}[/]\n"
-        f"输入 [cyan]quit[/] 退出",
+        f"输入 [cyan]/help[/] 查看命令，[cyan]quit[/] 退出",
         title="Welcome",
         border_style="blue",
     ))
@@ -48,6 +49,14 @@ def run() -> None:
 
         if not user_input:
             continue
+
+        # Slash 命令分发
+        if user_input.startswith("/"):
+            handled = dispatch_command(user_input, agent)
+            if not handled:
+                break
+            continue
+
         if user_input.lower() in ("quit", "exit", "q"):
             # 保存执行轨迹
             if agent.tracer.event_count > 0:
