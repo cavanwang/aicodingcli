@@ -16,6 +16,23 @@ logger = get_logger(__name__)
 
 USAGE_DIR = Path.home() / ".aicoding" / "usage"
 
+# 模型价格表（美元 / 百万 token）
+# 格式: {模型名: (input_price, output_price)}
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4-turbo": (10.00, 30.00),
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "claude-3-5-sonnet": (3.00, 15.00),
+    "claude-3-haiku": (0.25, 1.25),
+    "claude-3-opus": (15.00, 75.00),
+    "qwen-plus": (0.80, 2.00),
+    "qwen-turbo": (0.30, 0.60),
+    "qwen-max": (2.00, 6.00),
+    "deepseek-chat": (0.14, 0.28),
+    "deepseek-coder": (0.14, 0.28),
+}
+
 
 @dataclass
 class UsageStats:
@@ -41,7 +58,7 @@ class UsageStats:
         """记录一次工具调用。"""
         self.tool_calls += 1
 
-    def summary(self) -> str:
+    def summary(self, model_name: str = "") -> str:
         """返回格式化的用量摘要。"""
         if self.api_calls == 0:
             return "本次会话无 API 调用"
@@ -54,7 +71,36 @@ class UsageStats:
             f"  输出 Token: {self.completion_tokens:,}",
             f"  总计 Token: {self.total_tokens:,}",
         ]
+
+        cost = self.estimated_cost(model_name)
+        if cost > 0:
+            lines.append(f"  💰 费用估算: ${cost:.4f}")
+
         return "\n".join(lines)
+
+    def estimated_cost(self, model_name: str = "") -> float:
+        """估算本次会话的费用（美元）。
+
+        Args:
+            model_name: 模型名称，用于查找价格表
+
+        Returns:
+            估算费用（美元），找不到价格时返回 0.0
+        """
+        prices = MODEL_PRICES.get(model_name)
+        if prices is None:
+            # 尝试模糊匹配
+            for key, p in MODEL_PRICES.items():
+                if key in model_name or model_name in key:
+                    prices = p
+                    break
+        if prices is None:
+            return 0.0
+
+        input_price, output_price = prices
+        cost = (self.prompt_tokens / 1_000_000 * input_price +
+                self.completion_tokens / 1_000_000 * output_price)
+        return cost
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -87,9 +133,9 @@ class UsageTracker:
         """记录一次工具调用。"""
         self._session.record_tool_call()
 
-    def summary(self) -> str:
+    def summary(self, model_name: str = "") -> str:
         """返回当前会话的用量摘要。"""
-        return self._session.summary()
+        return self._session.summary(model_name=model_name)
 
     def save(self) -> Path | None:
         """保存当前会话用量到磁盘。"""
