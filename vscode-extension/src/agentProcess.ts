@@ -4,6 +4,7 @@
 
 import { ChildProcess, spawn } from "child_process";
 import { EventEmitter } from "events";
+import * as logger from "./logger";
 
 /** 从 Python Agent 收到的消息类型 */
 export interface AgentReadyMsg {
@@ -58,6 +59,7 @@ export class AgentProcess extends EventEmitter {
     }
 
     const mainPy = projectRoot + "/main.py";
+    logger.log(`[AgentProcess] 启动: python=${pythonPath}, workspace=${workspace}`);
 
     this._child = spawn(pythonPath, [
       mainPy,
@@ -75,14 +77,16 @@ export class AgentProcess extends EventEmitter {
     });
 
     this._child.stderr?.on("data", (data: Buffer) => {
-      console.error("[Agent stderr]", data.toString().trim());
+      logger.error("[Agent stderr]", data.toString().trim());
     });
 
     this._child.on("error", (err: Error) => {
+      logger.error("[AgentProcess] 进程错误:", err.message);
       this.emit("error", err);
     });
 
     this._child.on("close", (code: number | null) => {
+      logger.log(`[AgentProcess] 进程退出: code=${code}`);
       this._ready = false;
       this.emit("close", code);
     });
@@ -93,6 +97,7 @@ export class AgentProcess extends EventEmitter {
    */
   stop(): void {
     if (this._child) {
+      logger.log("[AgentProcess] 停止进程");
       this.send({ type: "quit" });
       setTimeout(() => {
         if (this._child && !this._child.killed) {
@@ -108,6 +113,7 @@ export class AgentProcess extends EventEmitter {
    * 发送聊天消息，可附带编辑器上下文。
    */
   chat(message: string, context?: { activeFile?: string; selection?: string }): void {
+    logger.log(`[AgentProcess] chat: ${message.substring(0, 100)}`);
     const msg: Record<string, unknown> = { type: "chat", message };
     if (context?.activeFile) {
       msg.activeFile = context.activeFile;
@@ -130,9 +136,10 @@ export class AgentProcess extends EventEmitter {
    */
   private send(msg: object): void {
     if (!this._child?.stdin?.writable) {
-      console.warn("[Agent] 进程未运行，无法发送消息");
+      logger.error("[AgentProcess] 进程未运行，无法发送消息");
       return;
     }
+    logger.log(`[AgentProcess] → ${JSON.stringify(msg).substring(0, 200)}`);
     const line = JSON.stringify(msg) + "\n";
     this._child.stdin.write(line);
   }
@@ -152,12 +159,13 @@ export class AgentProcess extends EventEmitter {
       }
       try {
         const msg: AgentMessage = JSON.parse(trimmed);
+        logger.log(`[AgentProcess] ← ${msg.type}`);
         if (msg.type === "ready") {
           this._ready = true;
         }
         this.emit("message", msg);
       } catch (e) {
-        console.error("[Agent] JSON 解析失败:", trimmed, e);
+        logger.error("[AgentProcess] JSON 解析失败:", trimmed);
       }
     }
   }

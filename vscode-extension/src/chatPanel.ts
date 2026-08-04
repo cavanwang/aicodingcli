@@ -5,6 +5,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { AgentProcess, AgentMessage } from "./agentProcess";
+import * as logger from "./logger";
 
 export class ChatPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "aicoding.chatView";
@@ -21,14 +22,17 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
     // 监听 Agent 消息，转发到 WebView
     this._agent.on("message", (msg: AgentMessage) => {
+      logger.log(`[ChatPanel] Agent → WebView: ${msg.type}`);
       this._postToWebview(msg);
     });
 
     this._agent.on("error", (err: Error) => {
+      logger.error(`[ChatPanel] Agent 错误: ${err.message}`);
       this._postToWebview({ type: "error", message: `进程错误: ${err.message}` });
     });
 
     this._agent.on("close", (code: number | null) => {
+      logger.log(`[ChatPanel] Agent 退出: code=${code}`);
       this._postToWebview({ type: "error", message: `Agent 已退出 (code=${code})` });
     });
   }
@@ -48,10 +52,12 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.html = this._getHtml();
+    logger.log("[ChatPanel] WebView 已就绪");
 
     // 监听 WebView 发来的消息
     webviewView.webview.onDidReceiveMessage((msg) => {
       if (msg.type === "userMessage") {
+        logger.log(`[ChatPanel] 用户消息: ${msg.text.substring(0, 100)}`);
         this._ensureAgentRunning();
 
         // 获取当前编辑器上下文
@@ -77,6 +83,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     if (this._agent.ready) {
       return;
     }
+
+    logger.log("[ChatPanel] 启动 Agent 进程...");
 
     const config = vscode.workspace.getConfiguration("aicoding");
     const pythonPath = config.get<string>("pythonPath", "python");

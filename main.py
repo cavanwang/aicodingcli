@@ -8,6 +8,9 @@ import subprocess
 import sys
 
 from cli import run as run_repl
+from agent.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def cmd_usage(args) -> None:
@@ -79,10 +82,12 @@ def run_server(workspace: str | None = None) -> None:
 
     # 创建 Agent（server 模式自动确认所有操作）
     from agent import create_agent
+    logger.info("[Server] 启动: workspace=%s", workspace or ".")
     agent = create_agent(confirm_fn=lambda name, args: True, debug=False)
 
     # 发送就绪消息
     _emit({"type": "ready", "model": agent._model, "workspace": workspace or "."})
+    logger.info("[Server] 就绪: model=%s", agent._model)
 
     # 主循环：从 stdin 读 JSON Lines
     for line in sys.stdin:
@@ -93,10 +98,12 @@ def run_server(workspace: str | None = None) -> None:
         try:
             msg = json.loads(line)
         except json.JSONDecodeError as e:
+            logger.warning("[Server] JSON 解析失败: %s — %s", line[:100], e)
             _emit({"type": "error", "message": f"JSON 解析失败: {e}"})
             continue
 
         msg_type = msg.get("type", "")
+        logger.debug("[Server] 收到消息: type=%s", msg_type)
 
         if msg_type == "chat":
             user_message = _build_message(msg)
@@ -104,16 +111,20 @@ def run_server(workspace: str | None = None) -> None:
                 _emit({"type": "error", "message": "消息内容为空"})
                 continue
 
+            logger.info("[Server] chat: %s", user_message[:200])
             try:
                 reply = agent.chat(user_message)
                 _emit({"type": "done", "reply": reply})
+                logger.info("[Server] done: %d 字符", len(reply))
             except Exception as e:
+                logger.error("[Server] chat 异常: %s", e, exc_info=True)
                 _emit({"type": "error", "message": f"执行出错: {e}"})
 
         elif msg_type == "ping":
             _emit({"type": "pong"})
 
         elif msg_type == "quit":
+            logger.info("[Server] 收到 quit，保存状态...")
             # 保存状态
             if agent.tracer.event_count > 0:
                 agent.tracer.save()
@@ -124,6 +135,7 @@ def run_server(workspace: str | None = None) -> None:
             if agent.usage.session.api_calls > 0:
                 agent.usage.save()
             _emit({"type": "bye"})
+            logger.info("[Server] 已退出")
             break
 
         else:

@@ -5,6 +5,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { ChatPanelProvider } from "./chatPanel";
+import * as logger from "./logger";
 
 let agentProcess: import("./agentProcess").AgentProcess | undefined;
 
@@ -33,12 +34,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  console.log("[AI Coding] 扩展已激活");
+  logger.log(`[Extension] 激活: projectRoot=${projectRoot}`);
 }
 
 export function deactivate(): void {
+  logger.log("[Extension] 卸载");
   if (agentProcess) {
     agentProcess.stop();
     agentProcess = undefined;
   }
+  logger.dispose();
 }

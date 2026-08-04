@@ -305,3 +305,92 @@ class TestBuildMessage:
         assert "[当前编辑文件: /src/main.py]" in result
         assert "def util(): pass" in result
         assert "参考" in result
+
+
+# ──────────────────────────────────────────────
+# Server 日志测试
+# ──────────────────────────────────────────────
+
+class TestServerLogging:
+    """验证 server 模式关键节点有日志记录。"""
+
+    def _run_and_capture_logs(self, input_lines: list[str]):
+        """辅助函数：运行 server 并捕获 logger 调用。"""
+        input_data = "\n".join(input_lines) + "\n"
+
+        with patch("sys.stdin", StringIO(input_data)), \
+             patch("sys.stdout", new_callable=StringIO), \
+             patch("agent.create_agent") as mock_create, \
+             patch("main.logger") as mock_logger:
+
+            mock_agent = MagicMock()
+            mock_agent._model = "test-model"
+            mock_agent.tracer.event_count = 0
+            mock_agent.memory.file_count = 0
+            mock_agent.planner.current_plan = None
+            mock_agent.usage.session.api_calls = 0
+            mock_agent.chat.return_value = "测试回复"
+            mock_create.return_value = mock_agent
+
+            run_server()
+
+            return mock_logger
+
+    def test_server_startup_logged(self):
+        """启动时应记录日志。"""
+        mock_logger = self._run_and_capture_logs([])
+        mock_logger.info.assert_any_call("[Server] 启动: workspace=%s", ".")
+        mock_logger.info.assert_any_call("[Server] 就绪: model=%s", "test-model")
+
+    def test_chat_logged(self):
+        """chat 消息应记录日志。"""
+        inputs = [json.dumps({"type": "chat", "message": "你好"})]
+        mock_logger = self._run_and_capture_logs(inputs)
+        # 检查有包含 "chat:" 的 info 调用
+        chat_calls = [
+            c for c in mock_logger.info.call_args_list
+            if "chat:" in str(c)
+        ]
+        assert len(chat_calls) >= 1
+
+    def test_chat_error_logged(self):
+        """chat 异常时应记录 error 日志。"""
+        input_data = json.dumps({"type": "chat", "message": "触发异常"}) + "\n"
+
+        with patch("sys.stdin", StringIO(input_data)), \
+             patch("sys.stdout", new_callable=StringIO), \
+             patch("agent.create_agent") as mock_create, \
+             patch("main.logger") as mock_logger:
+
+            mock_agent = MagicMock()
+            mock_agent._model = "test-model"
+            mock_agent.tracer.event_count = 0
+            mock_agent.memory.file_count = 0
+            mock_agent.planner.current_plan = None
+            mock_agent.usage.session.api_calls = 0
+            mock_agent.chat.side_effect = RuntimeError("模拟异常")
+            mock_create.return_value = mock_agent
+
+            run_server()
+
+            mock_logger.error.assert_called()
+            error_call_args = str(mock_logger.error.call_args)
+            assert "chat 异常" in error_call_args
+
+    def test_quit_logged(self):
+        """quit 消息应记录日志。"""
+        inputs = [json.dumps({"type": "quit"})]
+        mock_logger = self._run_and_capture_logs(inputs)
+        quit_calls = [
+            c for c in mock_logger.info.call_args_list
+            if "quit" in str(c) or "退出" in str(c)
+        ]
+        assert len(quit_calls) >= 1
+
+    def test_json_parse_error_logged(self):
+        """JSON 解析失败应记录 warning 日志。"""
+        inputs = ["这不是 JSON"]
+        mock_logger = self._run_and_capture_logs(inputs)
+        mock_logger.warning.assert_called()
+        warning_call_args = str(mock_logger.warning.call_args)
+        assert "解析失败" in warning_call_args
