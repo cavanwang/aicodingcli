@@ -16,6 +16,8 @@ from agent.tools.memory_tools import set_memory
 from agent.project import build_context
 from agent.tracer import ExecutionTracer
 from agent.usage import UsageTracker
+from agent.todo import TodoList
+from agent.tools.todo_tools import set_todo_list
 
 console = Console()
 logger = get_logger(__name__)
@@ -80,6 +82,11 @@ class Agent:
         # Token 用量跟踪器
         self._usage = UsageTracker()
 
+        # Todo 列表
+        self._todo = TodoList(session_id="current")
+        self._todo.load()  # 尝试加载上次的 todo
+        set_todo_list(self._todo)
+
     @property
     def messages(self) -> list[dict]:
         return self._messages
@@ -103,6 +110,11 @@ class Agent:
     def usage(self) -> UsageTracker:
         """获取 Token 用量跟踪器。"""
         return self._usage
+
+    @property
+    def todo(self) -> TodoList:
+        """获取 Todo 列表。"""
+        return self._todo
 
     def reset(self) -> None:
         """清空对话历史，只保留 system prompt。"""
@@ -246,6 +258,9 @@ class Agent:
         """处理一轮用户输入，流式输出，返回最终文本回复。"""
         self._messages.append({"role": "user", "content": user_message})
         logger.info("用户输入: %s", user_message[:100])
+
+        # 进度上下文注入：将 TaskPlan + Todo 摘要注入 system prompt
+        self._inject_progress_context()
 
         # 自动压缩：消息数超过阈值时压缩旧消息
         if self.compress_history():
@@ -443,11 +458,15 @@ class Agent:
                     duration_ms = (time.time() - start_time) * 1000
                     logger.warning("权限错误: %s - %s", func_name, e)
                     self._tracer.record_tool_call(func_name, func_args, result, duration_ms, success=False)
+                    # 失败信息传递到 Todo
+                    self._attach_error_to_current_todo(f"{func_name}: {e}")
                 except Exception as e:
                     result = f"❌ 执行出错: {e}"
                     duration_ms = (time.time() - start_time) * 1000
                     logger.error("工具执行异常: %s - %s", func_name, e, exc_info=True)
                     self._tracer.record_tool_call(func_name, func_args, result, duration_ms, success=False)
+                    # 失败信息传递到 Todo
+                    self._attach_error_to_current_todo(f"{func_name}: {e}")
 
             # ── 错误自愈：run_command 失败时进入修复循环 ──
             if func_name == "run_command" and RecoveryManager.is_failure(result):
@@ -518,6 +537,42 @@ class Agent:
                 "content": result,
             }
         )
+
+    # ──────────────────────────────────────────────
+    # 进度上下文注入 + 失败信息传递
+    # ──────────────────────────────────────────────
+
+    def _inject_progress_context(self) -> None:
+        """将 TaskPlan + Todo 进度摘要注入 system prompt。"""
+        parts = []
+
+        # TaskPlan 进度
+        if self._planner.current_plan is not None:
+            plan = self._planner.current_plan
+            if plan.status not in ("completed", "failed"):
+                total = len(plan.subtasks)
+                done = sum(1 for s in plan.subtasks if s.status == "done")
+                parts.append(f"📋 当前计划: {done}/{total} 完成")
+
+        # Todo 进度
+        todo_line = self._todo.progress_line()
+        if todo_line:
+            parts.append(todo_line)
+
+        if parts:
+            progress_msg = " | ".join(parts)
+            self._messages.append({
+                "role": "system",
+                "content": f"[进度感知] {progress_msg}",
+            })
+            logger.debug("进度注入: %s", progress_msg)
+
+    def _attach_error_to_current_todo(self, error: str) -> None:
+        """将错误信息附加到当前进行中的 Todo 项。"""
+        current = self._todo.get_current()
+        if current is not None:
+            self._todo.set_error(current.id, error)
+            logger.info("错误已附加到 Todo [%d]: %s", current.id, error[:100])
 
 
 # ──────────────────────────────────────────────────

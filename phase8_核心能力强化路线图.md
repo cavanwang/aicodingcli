@@ -86,43 +86,49 @@
 
 ---
 
-## 方向三：任务编排增强 — 失败降级与工具链
+## 方向三：任务编排增强 — 持久化 Todo 与进度感知
+
+> 设计思路：参考 Claude Code 的 TodoWrite 机制，模型就是编排引擎，不需要硬编码工具链。
 
 ### 目标
-让 TaskPlanner 支持更智能的失败处理和多工具协调。
+让 Agent 在复杂任务中具备细粒度的任务追踪能力，跨轮次保持进度感知。
 
 ### 当前现状
-- ✅ TaskPlanner 支持 create/next/complete/skip
+- ✅ TaskPlanner 支持 create/next/complete/skip（粗粒度计划）
 - ✅ mark_failed 标记失败
-- ❌ 失败后无自动重试/降级策略
-- ❌ 无工具链模板（一个子任务绑定多个工具执行序列）
+- ❌ 无细粒度 Todo 追踪（PENDING/IN_PROGRESS/COMPLETE）
+- ❌ 任务进度不跨轮次感知
+- ❌ 失败后无上下文传递
 
 ### 实现内容
 
-**3.1 失败降级策略**
-- SubTask 增加 `retry_count` 和 `max_retries` 字段
-- 子任务失败时自动重试（默认最多 2 次）
-- 超过重试上限后：跳过 or 标记计划失败（可配置）
-- 失败时自动创建 checkpoint，便于回滚
+**3.1 持久化 Todo 列表**
+- 新增 `agent/todo.py` 模块
+- 新增工具函数：`add_todo`、`update_todo`、`list_todos`、`complete_todo`
+- 支持 PENDING / IN_PROGRESS / COMPLETE 三种状态
+- Todo 列表持久化到 `~/.aicoding/todos/{session_id}.json`
+- 注册到工具注册表，模型可自主调用
 
-**3.2 工具链模板**
-- SubTask 增加可选 `tool_chain: list[str]` 字段
-- 定义常用模板：
-  - `edit_verify`: edit_file → verify_changes
-  - `edit_test_review`: edit_file → run_command(test) → review_changes
-- LLM 创建计划时可指定模板
+**3.2 进度上下文注入**
+- 每轮对话开始时，自动检测：
+  - 是否有活跃的 TaskPlan（粗粒度）
+  - 是否有未完成的 Todo 列表（细粒度）
+- 将摘要注入 system prompt，让模型知道"当前做到哪了"
+- 格式示例：`📋 当前计划: 3/5 完成 | 📝 Todo: 2 待办, 1 进行中`
 
-**3.3 进度上下文注入**
-- 每轮对话开始时，如果存在活跃计划，自动注入进度摘要到 system prompt
-- 让 LLM 始终知道"当前做到哪了"
+**3.3 失败信息传递**
+- 任务/工具调用失败时，将错误摘要附加到当前 Todo 项
+- 模型在下一轮能看到"上一步失败原因"，自行决定修复还是跳过
+- 不做自动重试，由模型基于错误信息自主决策
 
 ### 涉及文件
 | 操作 | 文件 | 说明 |
 |---|---|---|
-| 修改 | `agent/task_planner.py` | SubTask 增加重试 + 工具链字段 |
-| 修改 | `agent/tools/task_tools.py` | 支持降级策略 |
-| 修改 | `agent/core.py` | 自动注入计划进度到上下文 |
-| 修改 | `tests/test_task_planner.py` | 新增降级策略测试 |
+| 新增 | `agent/todo.py` | Todo 列表模块（数据模型 + 持久化） |
+| 新增 | `agent/tools/todo_tools.py` | Todo 工具函数（add/update/list/complete） |
+| 修改 | `agent/tools/registry.py` | 注册 Todo 工具 |
+| 修改 | `agent/core.py` | 进度上下文注入 |
+| 新增 | `tests/test_todo.py` | Todo 模块测试 |
 
 ---
 
@@ -164,16 +170,15 @@
 
 | 优先级 | 方向 | 理由 |
 |---|---|---|
-| P0 | 方向一：安全加固（剩余项） | 工程底线，成本低风险高 |
+| P0 | 方向一：安全加固 | ✅ 已完成 |
 | P1 | 方向二：验证护栏增强 | 在已有基础上增量，投入产出比高 |
-| P2 | 方向三：任务编排增强 | 提升复杂任务成功率 |
-| P2 | 方向四：Token 统计（剩余项） | 小功能，随时可补 |
+| P1 | 方向三：任务编排增强 | 参考 Claude Code TodoWrite，提升复杂任务追踪 |
 
 ---
 
 ## 里程碑
 
-- **M1**：安全加固完成 — Agent 不会执行危险命令
+- **M1**：✅ 安全加固完成 — Agent 不会执行危险命令
 - **M2**：验证护栏完成 — 审查结果可 JSON 输出 + 一键回滚
-- **M3**：任务编排增强 — 失败自动重试/降级
+- **M3**：任务编排增强 — 持久化 Todo + 进度感知
 - **M4**：Token 统计完善 — `agent usage` 子命令可用

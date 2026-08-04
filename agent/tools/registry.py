@@ -19,6 +19,7 @@ from agent.tools.verify import verify_changes
 from agent.tools.generate_tests import generate_tests
 from agent.tools.task_tools import create_plan, next_step, complete_step, plan_status
 from agent.tools.memory_tools import update_memory, review_changes
+from agent.tools.todo_tools import add_todo, update_todo, list_todos, complete_todo
 from agent.tools.git_ops import (
     git_checkpoint,
     git_diff,
@@ -501,6 +502,94 @@ _REGISTRY: list[dict] = [
                 "type": "object",
                 "properties": {},
                 "required": [],
+            },
+        },
+    },
+    # ──────────────────────────────────────────────
+    # Todo 待办管理
+    # ──────────────────────────────────────────────
+    {
+        "function": add_todo,
+        "requires_confirm": False,
+        "schema": {
+            "name": "add_todo",
+            "description": (
+                "添加一个待办事项到 Todo 列表。"
+                "用于追踪复杂任务中的细粒度步骤。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "待办事项的描述内容",
+                    },
+                },
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "function": update_todo,
+        "requires_confirm": False,
+        "schema": {
+            "name": "update_todo",
+            "description": (
+                "更新指定待办事项的内容或状态。"
+                "状态可选: pending | in_progress | complete"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todo_id": {
+                        "type": "integer",
+                        "description": "待办事项 ID",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "新的描述内容（可选）",
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "新状态: pending | in_progress | complete（可选）",
+                    },
+                },
+                "required": ["todo_id"],
+            },
+        },
+    },
+    {
+        "function": list_todos,
+        "requires_confirm": False,
+        "schema": {
+            "name": "list_todos",
+            "description": "列出所有待办事项及当前进度",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "function": complete_todo,
+        "requires_confirm": False,
+        "schema": {
+            "name": "complete_todo",
+            "description": "标记指定待办事项为完成",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todo_id": {
+                        "type": "integer",
+                        "description": "待办事项 ID",
+                    },
+                    "result": {
+                        "type": "string",
+                        "description": "完成结果摘要（可选）",
+                    },
+                },
+                "required": ["todo_id"],
             },
         },
     },
