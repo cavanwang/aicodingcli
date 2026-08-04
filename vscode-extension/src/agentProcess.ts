@@ -105,10 +105,17 @@ export class AgentProcess extends EventEmitter {
   }
 
   /**
-   * 发送聊天消息。
+   * 发送聊天消息，可附带编辑器上下文。
    */
-  chat(message: string): void {
-    this.send({ type: "chat", message });
+  chat(message: string, context?: { activeFile?: string; selection?: string }): void {
+    const msg: Record<string, unknown> = { type: "chat", message };
+    if (context?.activeFile) {
+      msg.activeFile = context.activeFile;
+    }
+    if (context?.selection) {
+      msg.selection = context.selection;
+    }
+    this.send(msg);
   }
 
   /**

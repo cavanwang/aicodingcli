@@ -53,7 +53,19 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage((msg) => {
       if (msg.type === "userMessage") {
         this._ensureAgentRunning();
-        this._agent.chat(msg.text);
+
+        // 获取当前编辑器上下文
+        const editor = vscode.window.activeTextEditor;
+        const context: { activeFile?: string; selection?: string } = {};
+        if (editor) {
+          context.activeFile = editor.document.uri.fsPath;
+          const sel = editor.document.getText(editor.selection);
+          if (sel) {
+            context.selection = sel;
+          }
+        }
+
+        this._agent.chat(msg.text, context);
       }
     });
   }

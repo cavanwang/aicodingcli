@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -98,8 +99,8 @@ def run_server(workspace: str | None = None) -> None:
         msg_type = msg.get("type", "")
 
         if msg_type == "chat":
-            user_message = msg.get("message", "")
-            if not user_message:
+            user_message = _build_message(msg)
+            if not user_message.strip():
                 _emit({"type": "error", "message": "消息内容为空"})
                 continue
 
@@ -127,6 +128,43 @@ def run_server(workspace: str | None = None) -> None:
 
         else:
             _emit({"type": "error", "message": f"未知消息类型: {msg_type}"})
+
+
+def _build_message(msg: dict) -> str:
+    """将 chat 消息 + 编辑器上下文 + @file 引用组装为最终用户消息。"""
+    user_message = msg.get("message", "")
+    parts: list[str] = []
+
+    # 编辑器上下文：当前文件 + 选区
+    active_file = msg.get("activeFile", "")
+    selection = msg.get("selection", "")
+    if active_file:
+        parts.append(f"[当前编辑文件: {active_file}]")
+    if selection:
+        parts.append(f"[选中内容]:\n{selection}")
+
+    # @file 引用：将 @file:path 替换为文件内容
+    workspace = os.environ.get("WORKSPACE_DIR", ".")
+
+    def _replace_at_file(match: re.Match) -> str:
+        filepath = match.group(1)
+        # 支持绝对路径和相对路径
+        if os.path.isabs(filepath):
+            full_path = filepath
+        else:
+            full_path = os.path.join(workspace, filepath)
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return f"[文件 {filepath} 的内容]:\n```\n{content}\n```"
+        except Exception as e:
+            return f"[无法读取文件 {filepath}: {e}]"
+
+    user_message = re.sub(r"@file:(\S+)", _replace_at_file, user_message)
+
+    if parts:
+        return "\n".join(parts) + "\n\n" + user_message
+    return user_message
 
 
 def _emit(msg: dict) -> None:

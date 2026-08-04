@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from main import _emit, run_server
+from main import _build_message, _emit, run_server
 
 
 # ──────────────────────────────────────────────
@@ -214,3 +214,94 @@ class TestProtocol:
         assert parsed["type"] == "ready"
         assert parsed["model"] == "qwen-plus"
         assert parsed["workspace"] == "/path/to/project"
+
+
+# ──────────────────────────────────────────────
+# 编辑器感知测试（方向四）
+# ──────────────────────────────────────────────
+
+class TestBuildMessage:
+    """_build_message 编辑器上下文 + @file 引用测试。"""
+
+    def test_plain_message(self):
+        """无上下文时原样返回。"""
+        msg = {"type": "chat", "message": "你好"}
+        assert _build_message(msg) == "你好"
+
+    def test_active_file_context(self):
+        """带 activeFile 时应注入文件路径。"""
+        msg = {"type": "chat", "message": "重构这个函数", "activeFile": "/src/main.py"}
+        result = _build_message(msg)
+        assert "[当前编辑文件: /src/main.py]" in result
+        assert "重构这个函数" in result
+
+    def test_selection_context(self):
+        """带 selection 时应注入选区内容。"""
+        msg = {
+            "type": "chat",
+            "message": "优化这段代码",
+            "selection": "def foo():\n    return 1",
+        }
+        result = _build_message(msg)
+        assert "[选中内容]:" in result
+        assert "def foo():" in result
+        assert "优化这段代码" in result
+
+    def test_full_context(self):
+        """同时有 activeFile + selection 时应全部注入。"""
+        msg = {
+            "type": "chat",
+            "message": "修复 bug",
+            "activeFile": "/src/app.py",
+            "selection": "x = 1 / 0",
+        }
+        result = _build_message(msg)
+        assert "[当前编辑文件: /src/app.py]" in result
+        assert "[选中内容]:" in result
+        assert "x = 1 / 0" in result
+        assert "修复 bug" in result
+
+    def test_at_file_reference(self, tmp_path):
+        """@file:path 应替换为文件内容。"""
+        test_file = tmp_path / "hello.py"
+        test_file.write_text("print('hello')")
+
+        msg = {"type": "chat", "message": f"看看 @file:hello.py 的内容"}
+        with patch.dict("os.environ", {"WORKSPACE_DIR": str(tmp_path)}):
+            result = _build_message(msg)
+        assert "[文件 hello.py 的内容]:" in result
+        assert "print('hello')" in result
+        assert "@file:" not in result
+
+    def test_at_file_absolute_path(self, tmp_path):
+        """@file 支持绝对路径。"""
+        test_file = tmp_path / "app.py"
+        test_file.write_text("x = 42")
+        abs_path = str(test_file)
+
+        msg = {"type": "chat", "message": f"看看 @file:{abs_path}"}
+        result = _build_message(msg)
+        assert "x = 42" in result
+
+    def test_at_file_not_found(self):
+        """@file 引用不存在的文件应返回错误提示。"""
+        msg = {"type": "chat", "message": "看看 @file:not_exist.py"}
+        with patch.dict("os.environ", {"WORKSPACE_DIR": "/tmp"}):
+            result = _build_message(msg)
+        assert "无法读取文件" in result
+
+    def test_at_file_with_context(self, tmp_path):
+        """@file 与编辑器上下文共存。"""
+        test_file = tmp_path / "util.py"
+        test_file.write_text("def util(): pass")
+
+        msg = {
+            "type": "chat",
+            "message": "参考 @file:util.py 修改",
+            "activeFile": "/src/main.py",
+        }
+        with patch.dict("os.environ", {"WORKSPACE_DIR": str(tmp_path)}):
+            result = _build_message(msg)
+        assert "[当前编辑文件: /src/main.py]" in result
+        assert "def util(): pass" in result
+        assert "参考" in result
