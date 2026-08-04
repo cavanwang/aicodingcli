@@ -62,6 +62,12 @@ def run() -> None:
                 plan_path = agent.planner.save()
                 if plan_path:
                     console.print(f"[dim]📋 任务计划已保存: {plan_path}[/]")
+            # 展示并保存 Token 用量
+            if agent.usage.session.api_calls > 0:
+                console.print(f"\n[dim]{agent.usage.summary()}[/]")
+                usage_path = agent.usage.save()
+                if usage_path:
+                    console.print(f"[dim]💾 用量已保存: {usage_path}[/]")
             console.print("[dim]👋 再见！[/]")
             break
 

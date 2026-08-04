@@ -15,6 +15,7 @@ from agent.tools.task_tools import set_planner
 from agent.tools.memory_tools import set_memory
 from agent.project import build_context
 from agent.tracer import ExecutionTracer
+from agent.usage import UsageTracker
 
 console = Console()
 logger = get_logger(__name__)
@@ -76,6 +77,9 @@ class Agent:
         # 执行轨迹记录器
         self._tracer = ExecutionTracer()
 
+        # Token 用量跟踪器
+        self._usage = UsageTracker()
+
     @property
     def messages(self) -> list[dict]:
         return self._messages
@@ -94,6 +98,11 @@ class Agent:
     def memory(self) -> CodeMemory:
         """获取代码记忆。"""
         return self._memory
+
+    @property
+    def usage(self) -> UsageTracker:
+        """获取 Token 用量跟踪器。"""
+        return self._usage
 
     def reset(self) -> None:
         """清空对话历史，只保留 system prompt。"""
@@ -268,9 +277,18 @@ class Agent:
                 tools=TOOLS_SCHEMA,
                 tool_choice="auto",
                 stream=True,
+                stream_options={"include_usage": True},
             )
 
-            content, tool_calls = self._consume_stream(stream)
+            content, tool_calls, usage = self._consume_stream(stream)
+
+            # 记录 Token 用量
+            if usage:
+                self._usage.record_usage(
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                    total_tokens=usage.get("total_tokens", 0),
+                )
 
             assistant_msg = self._build_assistant_message(content, tool_calls)
             self._messages.append(assistant_msg)
@@ -289,12 +307,21 @@ class Agent:
     # 流式消费
     # ──────────────────────────────────────────────
 
-    def _consume_stream(self, stream) -> tuple[str, list[dict]]:
-        """消费流式响应，实时打印文本，累积 tool_calls 片段。"""
+    def _consume_stream(self, stream) -> tuple[str, list[dict], dict | None]:
+        """消费流式响应，实时打印文本，累积 tool_calls 片段，收集 usage。"""
         collected_content = ""
         tool_calls_map: dict[int, dict] = {}
+        usage_data: dict | None = None
 
         for chunk in stream:
+            # 收集 usage 信息（通常在最后一个 chunk 中）
+            if hasattr(chunk, 'usage') and chunk.usage:
+                usage_data = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
+
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta is None:
                 continue
@@ -329,7 +356,7 @@ class Agent:
             else []
         )
 
-        return collected_content, tool_calls
+        return collected_content, tool_calls, usage_data
 
     # ──────────────────────────────────────────────
     # 构造完整 assistant message
@@ -365,6 +392,7 @@ class Agent:
                 highlight=False,
             )
             logger.info("工具调用: %s(%s)", func_name, func_args)
+            self._usage.record_tool_call()
 
             if self._debug:
                 console.print(
