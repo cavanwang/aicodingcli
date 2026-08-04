@@ -14,6 +14,7 @@ from agent.tools import TOOL_FUNCTIONS, TOOLS_SCHEMA, CONFIRM_TOOLS
 from agent.tools.task_tools import set_planner
 from agent.tools.memory_tools import set_memory
 from agent.project import build_context
+from agent.project_config import build_project_prompt
 from agent.tracer import ExecutionTracer
 from agent.usage import UsageTracker
 from agent.todo import TodoList
@@ -589,10 +590,16 @@ def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
         base_url=config.BASE_URL,
     )
 
+    # 构建 system prompt：基础 + 项目上下文 + 项目配置
+    project_prompt = build_project_prompt(config.WORKSPACE_DIR)
+    system_prompt = config.SYSTEM_PROMPT + "\n\n" + build_context()
+    if project_prompt:
+        system_prompt += "\n\n" + project_prompt
+
     return Agent(
         client=client,
         model=config.MODEL_NAME,
-        system_prompt=config.SYSTEM_PROMPT + "\n\n" + build_context(),
+        system_prompt=system_prompt,
         max_rounds=config.MAX_TOOL_ROUNDS,
         confirm_fn=confirm_fn,
         max_result_len=config.MAX_TOOL_RESULT_CHARS,
