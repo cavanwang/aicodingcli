@@ -63,6 +63,9 @@ ALLOWED_COMMANDS: set[str] = set(
     ).split(",")
 )
 
+# 沙箱隔离（macOS sandbox-exec）
+SANDBOX_ENABLED: bool = os.getenv("SANDBOX_ENABLED", "true").lower() == "true"
+
 # 输出限制
 MAX_FILE_READ_CHARS: int = int(os.getenv("MAX_FILE_READ_CHARS", "10000"))
 MAX_COMMAND_OUTPUT_CHARS: int = int(os.getenv("MAX_COMMAND_OUTPUT_CHARS", "5000"))
