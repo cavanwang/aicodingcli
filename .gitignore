@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 .aicoding_recovery/
+node_modules/
+out/
