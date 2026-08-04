@@ -1,6 +1,8 @@
-"""qcoder-cli 入口：支持子命令。"""
+"""qcoder-cli 入口：支持子命令 + --server 模式。"""
 
 import argparse
+import json
+import os
 import subprocess
 import sys
 
@@ -56,11 +58,96 @@ def cmd_rollback(args) -> None:
         sys.exit(1)
 
 
+def run_server(workspace: str | None = None) -> None:
+    """JSON Lines 服务模式：从 stdin 读消息，往 stdout 写回复。
+
+    协议：
+    - 输入: {"type": "chat", "message": "..."}
+    - 输出: {"type": "text", "content": "..."}
+              {"type": "tool", "name": "...", "args": {...}}
+              {"type": "done", "reply": "..."}
+              {"type": "error", "message": "..."}
+    """
+    # 设置工作目录
+    if workspace:
+        os.environ["WORKSPACE_DIR"] = workspace
+        # 重新加载 config 以应用新的工作目录
+        import importlib
+        import config
+        importlib.reload(config)
+
+    # 创建 Agent（server 模式自动确认所有操作）
+    from agent import create_agent
+    agent = create_agent(confirm_fn=lambda name, args: True, debug=False)
+
+    # 发送就绪消息
+    _emit({"type": "ready", "model": agent._model, "workspace": workspace or "."})
+
+    # 主循环：从 stdin 读 JSON Lines
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError as e:
+            _emit({"type": "error", "message": f"JSON 解析失败: {e}"})
+            continue
+
+        msg_type = msg.get("type", "")
+
+        if msg_type == "chat":
+            user_message = msg.get("message", "")
+            if not user_message:
+                _emit({"type": "error", "message": "消息内容为空"})
+                continue
+
+            try:
+                reply = agent.chat(user_message)
+                _emit({"type": "done", "reply": reply})
+            except Exception as e:
+                _emit({"type": "error", "message": f"执行出错: {e}"})
+
+        elif msg_type == "ping":
+            _emit({"type": "pong"})
+
+        elif msg_type == "quit":
+            # 保存状态
+            if agent.tracer.event_count > 0:
+                agent.tracer.save()
+            if agent.memory.file_count > 0:
+                agent.memory.save()
+            if agent.planner.current_plan is not None:
+                agent.planner.save()
+            if agent.usage.session.api_calls > 0:
+                agent.usage.save()
+            _emit({"type": "bye"})
+            break
+
+        else:
+            _emit({"type": "error", "message": f"未知消息类型: {msg_type}"})
+
+
+def _emit(msg: dict) -> None:
+    """向 stdout 输出一条 JSON 消息（自动刷新缓冲区）。"""
+    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
 def main() -> None:
     """主入口：解析子命令并分发。"""
     parser = argparse.ArgumentParser(
         prog="qcoder-cli",
         description="qcoder-cli AI 编程助手",
+    )
+    parser.add_argument(
+        "--server", action="store_true",
+        help="以 JSON Lines 服务模式运行（供 VS Code 扩展调用）",
+    )
+    parser.add_argument(
+        "--workspace", type=str, default=None,
+        help="工作目录路径（--server 模式下使用）",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -79,6 +166,11 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    # --server 模式：JSON Lines 服务循环
+    if args.server:
+        run_server(workspace=args.workspace)
+        return
 
     if args.command == "usage":
         cmd_usage(args)

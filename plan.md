@@ -151,6 +151,95 @@
 - 能独立处理中等复杂度任务
 - 能在失败后自我修正并继续推进
 
+### Phase 8：安全加固与可观测性增强
+目标：构建三层安全防护体系，增强执行追踪能力。
+
+实现内容：
+- 危险命令拦截（rm -rf、sudo、fork bomb 等正则检测）
+- 资源限制（内存上限、CPU 时间、sandbox-exec 隔离）
+- 统一日志系统（结构化日志、日志轮转）
+- 执行轨迹记录器（ExecutionTracer，全链路审计）
+
+验收标准：
+- 危险命令在执行前被拦截并提示
+- 长时间运行不会导致资源耗尽
+- 每一步操作都有完整的追踪记录
+
+---
+
+### Phase 9：对标 Claude Code 能力追赶
+目标：系统性追平 Claude Code 的核心能力。
+
+实现内容：
+- Slash 命令系统（12 个内置命令：/compact /cost /help /status /review /doctor 等）
+- 项目级配置（.agent.md 双层配置：全局 ~/.aicoding/config.md + 项目 .agent.md）
+- 费用估算（12 模型价格表，实时计算会话花费）
+- Token 统计完善（UsageTracker + usage 子命令 + 历史查询）
+- 验证护栏增强（review_changes JSON 输出、rollback CLI、complete_step 自动审查触发）
+- MCP 协议集成（stdio 传输 + 动态工具发现 + 自动注册到全局工具表）
+
+验收标准：
+- 核心编程能力与 Claude Code 打平
+- 支持通过 MCP 协议动态加载外部工具
+- 用户可通过 Slash 命令快速操作
+
+---
+
+### Phase 10：VS Code 扩展集成
+目标：将 Python CLI Agent 包装为 VS Code 扩展，提供聊天式编程交互界面。
+
+架构设计：
+```
+VS Code 扩展 (TypeScript, ~400行)
+  ├── Chat Panel (WebView)
+  ├── 子进程管理 (spawn python main.py --server)
+  └── JSON Lines 通信 (stdin/stdout)
+        ↕
+Python Agent (核心逻辑零改动)
+```
+
+实现内容：
+
+**方向一：Python 端 --server 模式（~80 行）**
+- 新增 `run_server()` 函数，从 stdin 逐行读 JSON，调用 Agent.chat()，将回复写 stdout
+- 消息协议：输入 `{"type":"chat","message":"..."}` 输出 `{"type":"text","content":"..."}` / `{"type":"tool","name":"...","args":{...}}` / `{"type":"done","reply":"..."}`
+- 支持 `--server --workspace /path/to/project` 参数
+- 测试：JSON Lines 解析、多轮对话上下文保持、错误处理
+
+**方向二：VS Code 扩展骨架（~150 行 TS）**
+- `yo code` 脚手架初始化项目
+- 注册命令 `aicoding.startChat`，激活侧边栏视图
+- 子进程管理：spawn Python 进程、生命周期管理（启动/重启/销毁）、错误恢复
+- 消息桥接：TS ↔ Python JSON Lines 序列化/反序列化、事件分发
+
+**方向三：聊天面板 UI（~200 行 HTML/CSS/JS）**
+- WebView 侧边栏面板
+- 类 ChatGPT 聊天界面（消息列表 + 输入框 + 发送按钮）
+- 流式文本逐字展示
+- Markdown 渲染（代码块、列表等格式化）
+
+**方向四：编辑器感知（~80 行 TS）**
+- 每次发消息时附带当前打开文件的路径和选中代码
+- Agent 修改文件后 VS Code 编辑器自动刷新（天然支持）
+- 输入框支持 `@filename` 快速引用文件
+
+**方向五：打包与测试**
+- `vsce package` 生成 .vsix 安装包
+- 冒烟测试：启动 → 聊天 → 编辑文件 → 多轮对话
+- 使用说明文档
+
+验收标准：
+- 在 VS Code 中通过侧边栏与 Agent 对话
+- Agent 能感知当前编辑的文件并执行修改
+- 多轮对话保持上下文
+- 支持 @file 引用项目文件
+
+不做的事：
+- 不重写 Agent 核心逻辑
+- 不做内联代码补全（留给后续迭代）
+- 不做 Diff 预览弹窗（VS Code 自带文件变更检测已够用）
+- 不做代码导航/跳转（用户自行安装语言插件）
+
 ---
 
 ## 4. 推荐的优先顺序
@@ -176,8 +265,11 @@
 
 ## 6. 里程碑建议
 
-- Milestone 1：基础 Agent 可执行一个简单任务
-- Milestone 2：支持会话保存与恢复
-- Milestone 3：支持修改前 checkpoint
-- Milestone 4：支持失败后自动分析与重试
-- Milestone 5：支持更复杂项目级任务
+- Milestone 1：基础 Agent 可执行一个简单任务 ✅
+- Milestone 2：支持会话保存与恢复 ✅
+- Milestone 3：支持修改前 checkpoint ✅
+- Milestone 4：支持失败后自动分析与重试 ✅
+- Milestone 5：支持更复杂项目级任务 ✅
+- Milestone 6：安全加固 + 可观测性 ✅ (Phase 8)
+- Milestone 7：对标 Claude Code + MCP 集成 ✅ (Phase 9)
+- Milestone 8：VS Code 扩展集成 (Phase 10)
