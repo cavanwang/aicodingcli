@@ -82,6 +82,18 @@ MAX_COMMAND_OUTPUT_CHARS: int = int(os.getenv("MAX_COMMAND_OUTPUT_CHARS", "5000"
 MAX_TOOL_RESULT_CHARS: int = int(os.getenv("MAX_TOOL_RESULT_CHARS", "4000"))
 COMMAND_TIMEOUT_SECONDS: int = int(os.getenv("COMMAND_TIMEOUT_SECONDS", "30"))
 
+# MCP 服务器配置
+# 格式: JSON 数组，每个元素 {name, command, args, env, cwd}
+# 示例: '[{"name": "db", "command": "python", "args": ["mcp_db_server.py"]}]'
+MCP_SERVERS: list[dict] = []
+_mcp_raw = os.getenv("MCP_SERVERS", "")
+if _mcp_raw:
+    import json as _json
+    try:
+        MCP_SERVERS = _json.loads(_mcp_raw)
+    except _json.JSONDecodeError:
+        pass
+
 # 日志
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_DIR: Path = Path.home() / ".aicoding" / "logs"

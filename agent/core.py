@@ -19,6 +19,8 @@ from agent.tracer import ExecutionTracer
 from agent.usage import UsageTracker
 from agent.todo import TodoList
 from agent.tools.todo_tools import set_todo_list
+from agent.mcp_manager import MCPManager, MCPServerConfig
+from agent.mcp_tools import register_mcp_tools
 
 console = Console()
 logger = get_logger(__name__)
@@ -88,6 +90,9 @@ class Agent:
         self._todo.load()  # 尝试加载上次的 todo
         set_todo_list(self._todo)
 
+        # MCP 客户端管理器
+        self._mcp = MCPManager()
+
     @property
     def messages(self) -> list[dict]:
         return self._messages
@@ -116,6 +121,29 @@ class Agent:
     def todo(self) -> TodoList:
         """获取 Todo 列表。"""
         return self._todo
+
+    @property
+    def mcp(self) -> MCPManager:
+        """获取 MCP 客户端管理器。"""
+        return self._mcp
+
+    def init_mcp(self, server_configs: list[dict]) -> int:
+        """初始化 MCP 连接，注册工具。返回注册的工具数。"""
+        for cfg_dict in server_configs:
+            self._mcp.add_server(MCPServerConfig(
+                name=cfg_dict["name"],
+                command=cfg_dict["command"],
+                args=cfg_dict.get("args", []),
+                env=cfg_dict.get("env"),
+                cwd=cfg_dict.get("cwd"),
+            ))
+
+        tool_names = self._mcp.connect_all()
+        if tool_names:
+            count = register_mcp_tools(self._mcp)
+            logger.info("MCP 工具已注册: %d 个 (%s)", count, ", ".join(tool_names))
+            return count
+        return 0
 
     def reset(self) -> None:
         """清空对话历史，只保留 system prompt。"""
@@ -596,7 +624,7 @@ def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
     if project_prompt:
         system_prompt += "\n\n" + project_prompt
 
-    return Agent(
+    agent = Agent(
         client=client,
         model=config.MODEL_NAME,
         system_prompt=system_prompt,
@@ -605,3 +633,14 @@ def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
         max_result_len=config.MAX_TOOL_RESULT_CHARS,
         debug=debug,
     )
+
+    # 初始化 MCP 连接（如果有配置）
+    if config.MCP_SERVERS:
+        mcp_count = agent.init_mcp(config.MCP_SERVERS)
+        if mcp_count > 0:
+            console.print(
+                f"  🔌 [cyan]MCP 已连接: {mcp_count} 个外部工具[/]",
+                highlight=False,
+            )
+
+    return agent
