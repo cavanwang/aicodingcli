@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,17 @@ class ReviewResult:
     risk_level: str = "low"           # low | medium | high
     suggestions: list[str] = field(default_factory=list)
     raw_analysis: str = ""
+
+    def to_json(self) -> str:
+        """序列化为 JSON 字符串。"""
+        data = asdict(self)
+        # 截断过长的 test_output
+        if len(data.get("test_output", "")) > 500:
+            data["test_output"] = data["test_output"][:500] + "...(truncated)"
+        # 截断 raw_analysis
+        if len(data.get("raw_analysis", "")) > 1000:
+            data["raw_analysis"] = data["raw_analysis"][:1000] + "...(truncated)"
+        return json.dumps(data, ensure_ascii=False, indent=2)
 
 
 class ChangeReviewer:

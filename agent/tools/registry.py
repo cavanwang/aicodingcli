@@ -500,7 +500,13 @@ _REGISTRY: list[dict] = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "输出格式：'text'（默认，可读报告）或 'json'（结构化数据）",
+                        "enum": ["text", "json"],
+                    },
+                },
                 "required": [],
             },
         },

@@ -85,11 +85,18 @@ def update_memory(
     return f"❌ 未知操作: {action}，可选: summary, interfaces, fact, remove"
 
 
-def review_changes() -> str:
-    """审查当前变更质量：分析变更范围、运行测试、评估风险。"""
+def review_changes(format: str = "text") -> str:
+    """审查当前变更质量：分析变更范围、运行测试、评估风险。
+
+    Args:
+        format: 输出格式，"text"（默认）或 "json"
+    """
     # 延迟导入，避免循环依赖
     from agent.review import ChangeReviewer
 
     reviewer = ChangeReviewer()
     result = reviewer.review()
+
+    if format == "json":
+        return result.to_json()
     return reviewer.format_report(result)

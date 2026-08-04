@@ -31,6 +31,14 @@ def _get_planner() -> TaskPlanner:
 # 工具函数
 # ──────────────────────────────────────────────
 
+# 代码修改类关键词（触发自动审查）
+_CODE_KEYWORDS = {"修改", "创建", "编辑", "实现", "修复", "重构", "新增", "删除", "编写", "开发"}
+
+
+def _is_code_task(description: str) -> bool:
+    """判断子任务是否为代码修改类。"""
+    return any(kw in description for kw in _CODE_KEYWORDS)
+
 def create_plan(goal: str, subtasks: str) -> str:
     """创建任务执行计划。
 
@@ -80,11 +88,31 @@ def complete_step(step_id: int, result: str = "") -> str:
         result: 执行结果摘要
     """
     planner = _get_planner()
+
+    # 先获取子任务描述（用于判断是否代码类）
+    step = None
+    for s in planner.current_plan.subtasks if planner.current_plan else []:
+        if s.id == step_id:
+            step = s
+            break
+
     ok = planner.mark_done(step_id, result)
     if not ok:
         return f"❌ 未找到序号为 {step_id} 的子任务"
     planner.save()
-    return f"✓ 任务 [{step_id}] 已完成\n{planner.progress_summary()}"
+
+    output = f"✓ 任务 [{step_id}] 已完成\n{planner.progress_summary()}"
+
+    # 代码修改类任务完成后，自动触发审查
+    if step and _is_code_task(step.description):
+        try:
+            from agent.tools.memory_tools import review_changes
+            review_report = review_changes(format="text")
+            output += f"\n\n🔍 自动审查报告:\n{review_report}"
+        except Exception:
+            pass  # 审查失败不影响任务完成
+
+    return output
 
 
 def plan_status() -> str:
