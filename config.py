@@ -66,6 +66,16 @@ ALLOWED_COMMANDS: set[str] = set(
 # 沙箱隔离（macOS sandbox-exec）
 SANDBOX_ENABLED: bool = os.getenv("SANDBOX_ENABLED", "true").lower() == "true"
 
+# 危险命令检测（额外的正则模式，逗号分隔）
+DANGEROUS_COMMANDS_EXTRA: list[str] = [
+    p.strip()
+    for p in os.getenv("DANGEROUS_COMMANDS_EXTRA", "").split(",")
+    if p.strip()
+]
+
+# 资源限制
+COMMAND_MEMORY_LIMIT_MB: int = int(os.getenv("COMMAND_MEMORY_LIMIT_MB", "1024"))
+
 # 输出限制
 MAX_FILE_READ_CHARS: int = int(os.getenv("MAX_FILE_READ_CHARS", "10000"))
 MAX_COMMAND_OUTPUT_CHARS: int = int(os.getenv("MAX_COMMAND_OUTPUT_CHARS", "5000"))

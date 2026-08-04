@@ -145,6 +145,7 @@ class SandboxExecutor:
         command: str,
         timeout: int = 30,
         cwd: Path | None = None,
+        preexec_fn: callable | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """在沙箱中执行命令。
 
@@ -152,12 +153,13 @@ class SandboxExecutor:
             command: 要执行的 shell 命令
             timeout: 超时秒数
             cwd: 工作目录（默认使用 workspace_dir）
+            preexec_fn: 子进程启动前的回调函数（用于资源限制等）
 
         Returns:
             CompletedProcess 对象
         """
         if not self.enabled or not self._is_sandbox_available():
-            return self._execute_normal(command, timeout, cwd)
+            return self._execute_normal(command, timeout, cwd, preexec_fn)
 
         profile = self.build_profile()
         sandboxed_cmd = f"sandbox-exec -p '{profile}' {command}"
@@ -172,6 +174,7 @@ class SandboxExecutor:
                 text=True,
                 timeout=timeout,
                 cwd=str(cwd or self.workspace_dir),
+                preexec_fn=preexec_fn,
             )
             return result
         except subprocess.TimeoutExpired:
@@ -195,6 +198,7 @@ class SandboxExecutor:
         command: str,
         timeout: int,
         cwd: Path | None,
+        preexec_fn: callable | None = None,
     ) -> subprocess.CompletedProcess[str]:
         """非沙箱模式执行（降级或沙箱不可用时）。"""
         logger.debug("普通执行（无沙箱）: %s", command[:100])
@@ -206,6 +210,7 @@ class SandboxExecutor:
                 text=True,
                 timeout=timeout,
                 cwd=str(cwd or self.workspace_dir),
+                preexec_fn=preexec_fn,
             )
         except subprocess.TimeoutExpired:
             return subprocess.CompletedProcess(
