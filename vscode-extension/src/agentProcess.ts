@@ -98,10 +98,11 @@ export class AgentProcess extends EventEmitter {
   stop(): void {
     if (this._child) {
       logger.log("[AgentProcess] 停止进程");
+      const childToStop = this._child;  // 捕获当前子进程引用
       this.send({ type: "quit" });
       setTimeout(() => {
-        if (this._child && !this._child.killed) {
-          this._child.kill("SIGTERM");
+        if (childToStop && !childToStop.killed) {
+          childToStop.kill("SIGTERM");
         }
       }, 2000);
       this._child = null;
