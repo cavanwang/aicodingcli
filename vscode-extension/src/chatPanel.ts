@@ -196,17 +196,25 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   /**
    * 生成 WebView HTML。
    */
-  private _getHtml(webview: vscode.Webview): string {
-    // markdown-it 库通过 localResourceRoots 加载（CSP 禁止外部 CDN）
-    const mdUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, "media", "markdown-it.min.js"),
-    );
+  private _getHtml(_webview?: vscode.Webview): string {
+    // markdown-it 库直接内联进 HTML：CSP 已允许 'unsafe-inline'，
+    // 避免 <script src> 加载时 webview URI 的 '+' 被编码为 %2B
+    // 导致 CSP 拒绝解析的真实环境 bug
+    let mdLib = "";
+    try {
+      mdLib = fs.readFileSync(
+        path.join(this._extensionUri.fsPath, "media", "markdown-it.min.js"),
+        "utf8",
+      );
+    } catch (e) {
+      logger.error("[ChatPanel] 加载 markdown-it 失败，回退纯文本渲染:", e);
+    }
     return `<!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' ${mdUri};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
   <title>AI Coding Chat</title>
   <style>
     body {
@@ -485,7 +493,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     <textarea id="input" placeholder="输入消息..." rows="1"></textarea>
     <button id="send-btn">发送</button>
   </div>
-  <script src="${mdUri}"></script>
+  <script>${mdLib}</script>
   <script>
     const vscode = acquireVsCodeApi();
 
