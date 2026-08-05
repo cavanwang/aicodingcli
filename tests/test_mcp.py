@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import sys
 import tempfile
 import textwrap
 import threading
@@ -149,9 +150,11 @@ class TestMCPManagerIntegration:
     @pytest.fixture
     def manager_with_server(self, server_script):
         mgr = MCPManager()
+        # 必须用当前解释器（含 mcp 依赖）；裸 python 可能解析到
+        # 未安装 mcp 的系统环境，导致服务器启动失败
         mgr.add_server(MCPServerConfig(
             name="test",
-            command="python",
+            command=sys.executable,
             args=[server_script],
         ))
         yield mgr
@@ -354,6 +357,39 @@ class TestRegisterMCPTools:
 
 # ──────────────────────────────────────────────
 # Config 加载测试
+# ──────────────────────────────────────────────
+
+class TestInitMCPPythonMapping:
+    """init_mcp 裸 python 命令映射测试（防环境坑）。"""
+
+    def _agent_with_mock_mcp(self):
+        from agent.core import Agent
+        agent = Agent.__new__(Agent)
+        agent._mcp = MagicMock()
+        agent._mcp.connect_all.return_value = []
+        return agent
+
+    def test_bare_python_mapped_to_executable(self):
+        agent = self._agent_with_mock_mcp()
+        agent.init_mcp([{"name": "s1", "command": "python", "args": ["srv.py"]},
+                        {"name": "s2", "command": "python3"},
+                        {"name": "s3", "command": "python3.12"}])
+        from agent.mcp_manager import MCPServerConfig
+        configs = [c.args[0] for c in agent._mcp.add_server.call_args_list]
+        for cfg in configs:
+            assert isinstance(cfg, MCPServerConfig)
+            assert cfg.command == sys.executable
+
+    def test_other_commands_untouched(self):
+        agent = self._agent_with_mock_mcp()
+        agent.init_mcp([{"name": "n", "command": "node", "args": ["srv.js"]},
+                        {"name": "p", "command": "/usr/local/bin/custom-py"}])
+        commands = [c.args[0].command for c in agent._mcp.add_server.call_args_list]
+        assert commands == ["node", "/usr/local/bin/custom-py"]
+
+
+# ──────────────────────────────────────────────
+# Config 加载测试（原有）
 # ──────────────────────────────────────────────
 
 class TestMCPConfig:

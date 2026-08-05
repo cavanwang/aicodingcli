@@ -2,6 +2,7 @@
 
 
 import json
+import sys
 import time
 from openai import OpenAI
 from rich.console import Console
@@ -146,9 +147,16 @@ class Agent:
     def init_mcp(self, server_configs: list[dict]) -> int:
         """初始化 MCP 连接，注册工具。返回注册的工具数。"""
         for cfg_dict in server_configs:
+            command = cfg_dict["command"]
+            # 裸 python 命令映射到当前解释器：MCP 服务器需要与 Agent 同环境
+            # （含 mcp 等依赖），裸 python 可能解析到无依赖的系统环境
+            if command in ("python", "python3") or command.startswith("python3."):
+                logger.info("MCP 服务器 [%s] 裸 %s 命令映射为当前解释器: %s",
+                            cfg_dict["name"], command, sys.executable)
+                command = sys.executable
             self._mcp.add_server(MCPServerConfig(
                 name=cfg_dict["name"],
-                command=cfg_dict["command"],
+                command=command,
                 args=cfg_dict.get("args", []),
                 env=cfg_dict.get("env"),
                 cwd=cfg_dict.get("cwd"),
