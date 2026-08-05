@@ -14,10 +14,10 @@
 2. **[P0] 任务 B：符号导航工具化**（1~2 人日）✅ 已完成
    - [x] 注册 find_definition / find_references 工具（基于已有 ast_analyzer.py）
    - [x] 新增 get_import_tree 工具（复用 project.py import 提取）
-3. **[P1] 任务 C：语义搜索 API 版**（3~5 人日）
-   - [ ] AST 函数级分块 + DashScope text-embedding-v3
-   - [ ] 内容哈希增量索引 + semantic_search 工具 + 关键词降级
-   - [ ] 清理旧 CodeBERTa 遗留（agent/semantic.py、torch/transformers 依赖）
+3. **[P1] 任务 C：语义搜索 API 版**（3~5 人日）✅ 已完成
+   - [x] AST 函数级分块 + DashScope text-embedding-v3
+   - [x] 内容哈希增量索引 + semantic_search 工具 + 关键词降级
+   - [x] 清理旧 CodeBERTa 遗留（agent/semantic.py 重写、torch/transformers 依赖移除）
 
 ### 🧠 阶段二：上下文与验证智能
 **核心目标**：让有限上下文装载最高价值信息，理解结论可验证

@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .aicoding_recovery/
+.cache/
 node_modules/
 out/
 *.vsix

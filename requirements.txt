@@ -6,5 +6,4 @@ pydantic
 python-dotenv
 mcp
 pandas
-transformers==4.35.*
-torch==2.1.*
+numpy

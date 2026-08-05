@@ -16,6 +16,7 @@ from agent.tools.shell import run_command
 from agent.tools.search import search_in_files
 from agent.tools.find_files import find_files
 from agent.tools.symbol_nav import find_definition, find_references, get_import_tree
+from agent.tools.semantic_tools import semantic_search
 from agent.tools.verify import verify_changes
 from agent.tools.generate_tests import generate_tests
 from agent.tools.task_tools import create_plan, next_step, complete_step, plan_status
@@ -264,6 +265,28 @@ _REGISTRY: list[dict] = [
                     },
                 },
                 "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "function": semantic_search,
+        "requires_confirm": False,
+        "schema": {
+            "name": "semantic_search",
+            "description": "用自然语言语义检索代码（如'分页处理逻辑'），基于函数/类级向量索引，支持中英跨模态。大仓库中关键词搜索不理想时的补充手段；首次调用自动建索引，API 不可用时自动提示降级到关键词搜索",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "自然语言查询，如'用户登录失败处理'、'分页处理逻辑'",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "返回结果数量上限，默认 5，最大 20",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },

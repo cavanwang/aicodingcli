@@ -11,6 +11,9 @@ API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 BASE_URL: str = os.getenv("OPENAI_BASE_URL", "")
 MODEL_NAME: str = os.getenv("MODEL_NAME", "qwen-plus")
 
+# 语义搜索嵌入模型（DashScope OpenAI 兼容端点）
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-v3")
+
 # Agent 行为
 SYSTEM_PROMPT: str = os.getenv(
     "SYSTEM_PROMPT",
