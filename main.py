@@ -6,6 +6,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import queue as queue_mod
 
 from cli import run as run_repl
 from agent.logger import get_logger
@@ -67,11 +69,35 @@ def run_server(workspace: str | None = None) -> None:
 
     协议：
     - 输入: {"type": "chat", "message": "..."}
+              {"type": "confirm_reply", "approved": true}
     - 输出: {"type": "text", "content": "..."}
               {"type": "tool", "name": "...", "args": {...}}
+              {"type": "memory_confirm", "section": "...", "content": "..."}
               {"type": "done", "reply": "..."}
               {"type": "error", "message": "..."}
     """
+    # ── 记忆保存确认机制（线程安全）──
+    # 当 save_memory 的 source="chat" 时，需要用户确认
+    _confirm_event = threading.Event()
+    _confirm_approved = False
+
+    def _server_confirm_fn(name: str, args: dict) -> bool:
+        """Server 模式的确认函数：save_memory(source=chat) 时暂停等待用户确认。"""
+        nonlocal _confirm_approved
+        if name == "save_memory" and args.get("source", "chat") == "chat":
+            # 发送确认请求给前端
+            _emit({
+                "type": "memory_confirm",
+                "section": args.get("section", "(根)"),
+                "content": args.get("content", ""),
+                "action": args.get("action", "save"),
+            })
+            # 等待前端回复 confirm_reply
+            _confirm_event.clear()
+            _confirm_event.wait(timeout=120)  # 最多等 2 分钟
+            return _confirm_approved
+        # 其他工具自动批准
+        return True
     # 设置工作目录
     if workspace:
         os.environ["WORKSPACE_DIR"] = workspace
@@ -83,24 +109,52 @@ def run_server(workspace: str | None = None) -> None:
     # 创建 Agent（server 模式自动确认所有操作）
     from agent import create_agent
     logger.info("[Server] 启动: workspace=%s", workspace or ".")
-    agent = create_agent(confirm_fn=lambda name, args: True, debug=False)
+    agent = create_agent(confirm_fn=_server_confirm_fn, debug=False)
 
     # 发送就绪消息
     _emit({"type": "ready", "model": agent._model, "workspace": workspace or "."})
     logger.info("[Server] 就绪: model=%s", agent._model)
 
-    # 主循环：从 stdin 读 JSON Lines
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
+    # ── 后台 stdin 读取线程 ──
+    # 解决 agent.chat() 阻塞时无法读取 confirm_reply 的问题
+    _msg_queue = queue_mod.Queue()
 
+    def _stdin_reader():
+        """后台线程：持续读取 stdin，confirm_reply 直接处理，其他消息放入队列。"""
+        nonlocal _confirm_approved
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError as e:
+                logger.warning("[Server] JSON 解析失败: %s — %s", line[:100], e)
+                _emit({"type": "error", "message": f"JSON 解析失败: {e}"})
+                continue
+
+            msg_type = msg.get("type", "")
+            if msg_type == "confirm_reply":
+                # 直接处理确认回复
+                _confirm_approved = msg.get("approved", False)
+                _confirm_event.set()
+                logger.info("[Server] 收到确认回复: approved=%s", _confirm_approved)
+            else:
+                _msg_queue.put(msg)
+        # stdin 耗尽，发送退出信号
+        _msg_queue.put(None)
+
+    _stdin_thread = threading.Thread(target=_stdin_reader, daemon=True)
+    _stdin_thread.start()
+
+    # 主循环：从队列读消息
+    while True:
         try:
-            msg = json.loads(line)
-        except json.JSONDecodeError as e:
-            logger.warning("[Server] JSON 解析失败: %s — %s", line[:100], e)
-            _emit({"type": "error", "message": f"JSON 解析失败: {e}"})
-            continue
+            msg = _msg_queue.get()
+            if msg is None:  # stdin 耗尽
+                break
+        except (EOFError, KeyboardInterrupt):
+            break
 
         msg_type = msg.get("type", "")
         logger.debug("[Server] 收到消息: type=%s", msg_type)

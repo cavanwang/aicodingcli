@@ -15,8 +15,20 @@ console = Console()
 
 def _confirm_tool(func_name: str, func_args: dict) -> bool:
     """破坏性操作前询问用户。"""
-    console.print(f"\n  ⚠️  [yellow]即将执行: {func_name}({func_args})[/]")
-    answer = console.input("  允许？[bold green]y[/]/[bold red]N[/] > ").strip().lower()
+    if func_name == "save_memory":
+        # 美化记忆保存确认：清晰展示章节和内容
+        section = func_args.get("section", "(根)")
+        content = func_args.get("content", "")
+        action = func_args.get("action", "save")
+        console.print()
+        console.print("  📝 [bold cyan]即将保存项目记忆[/]")
+        console.print(f"  [dim]操作:[/] {action}")
+        console.print(f"  [dim]章节:[/] {section}")
+        console.print(f"  [dim]内容:[/] {content}")
+        console.print()
+    else:
+        console.print(f"\n  ⚠️  [yellow]即将执行: {func_name}({func_args})[/]")
+    answer = console.input("  是否同意？[bold green]y[/]/[bold red]N[/] > ").strip().lower()
     return answer == "y"
 
 

@@ -109,6 +109,11 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           this._stopAgent();
           this._postToWebview({ type: "sessionClosed" });
           break;
+
+        case "confirmReply":
+          logger.log(`[ChatPanel] 记忆确认回复: approved=${msg.approved}`);
+          this._agent.sendConfirmReply(msg.approved);
+          break;
       }
     });
   }
@@ -399,6 +404,33 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
             addMessage(m.text, m.className, false);
           }
           messageHistory = msg.messages;
+          break;
+
+        case 'memory_confirm':
+          // 显示记忆保存确认 UI
+          var confirmDiv = document.createElement('div');
+          confirmDiv.className = 'msg msg-confirm';
+          var confirmHtml = '<div style="margin-bottom:8px">'
+            + '<strong>\ud83d\udcdd 即将保存项目记忆</strong><br/>'
+            + '<span style="color:var(--vscode-descriptionForeground)">'
+            + '章节: ' + msg.section + '<br/>'
+            + '内容: ' + msg.content
+            + '</span></div>'
+            + '<div>'
+            + '<button class="confirm-yes" style="margin-right:8px;padding:2px 12px;cursor:pointer;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:3px">\u2705 同意保存</button>'
+            + '<button class="confirm-no" style="padding:2px 12px;cursor:pointer;background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);border:none;border-radius:3px">\u274c 拒绝</button>'
+            + '</div>';
+          confirmDiv.innerHTML = confirmHtml;
+          confirmDiv.querySelector('.confirm-yes').addEventListener('click', function() {
+            vscode.postMessage({ type: 'confirmReply', approved: true });
+            confirmDiv.innerHTML = '<em style="color:var(--vscode-descriptionForeground)">\u2705 已同意保存</em>';
+          });
+          confirmDiv.querySelector('.confirm-no').addEventListener('click', function() {
+            vscode.postMessage({ type: 'confirmReply', approved: false });
+            confirmDiv.innerHTML = '<em style="color:var(--vscode-descriptionForeground)">\u274c 已拒绝保存</em>';
+          });
+          messagesEl.appendChild(confirmDiv);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
           break;
       }
     });

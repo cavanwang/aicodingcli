@@ -536,6 +536,14 @@ _REGISTRY: list[dict] = [
                         "type": "string",
                         "description": "章节标题（仅 append 模式使用），如 '## 模块职责'",
                     },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "记忆来源。'chat'=从用户聊天中识别的约束/偏好（将触发用户确认），"
+                            "'explicit'=用户明确要求保存（直接执行）。默认 'chat'"
+                        ),
+                        "enum": ["chat", "explicit"],
+                    },
                 },
                 "required": ["action"],
             },

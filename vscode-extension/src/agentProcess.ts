@@ -132,6 +132,14 @@ export class AgentProcess extends EventEmitter {
   }
 
   /**
+   * 回复记忆保存确认。
+   */
+  sendConfirmReply(approved: boolean): void {
+    logger.log(`[AgentProcess] confirm_reply: approved=${approved}`);
+    this.send({ type: "confirm_reply", approved });
+  }
+
+  /**
    * 发送 JSON 消息到子进程 stdin。
    */
   private send(msg: object): void {

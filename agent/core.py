@@ -533,8 +533,13 @@ class Agent:
                     highlight=False,
                 )
 
-            # 用户确认：查注册表，不 hardcode 工具名
-            if self._confirm and func_name in CONFIRM_TOOLS:
+            # 用户确认：查注册表 + 动态规则
+            needs_confirm = func_name in CONFIRM_TOOLS
+            # save_memory 从聊天识别的约束必须用户确认（代码层强制）
+            if func_name == "save_memory" and func_args.get("source", "chat") == "chat":
+                needs_confirm = True
+
+            if self._confirm and needs_confirm:
                 if not self._confirm(func_name, func_args):
                     logger.info("用户拒绝操作: %s", func_name)
                     self._tracer.record_user_rejected(func_name)
