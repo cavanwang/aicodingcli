@@ -1,6 +1,8 @@
 """qcoder-cli 入口：支持子命令 + --server 模式。"""
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -160,12 +162,32 @@ def run_server(workspace: str | None = None) -> None:
         logger.debug("[Server] 收到消息: type=%s", msg_type)
 
         if msg_type == "chat":
+            raw_message = msg.get("message", "")
             user_message = _build_message(msg)
             if not user_message.strip():
                 _emit({"type": "error", "message": "消息内容为空"})
                 continue
 
             logger.info("[Server] chat: %s", user_message[:200])
+
+            # Slash 命令本地处理，不经过 LLM
+            if raw_message.strip().startswith("/"):
+                try:
+                    from cli.commands import dispatch_command
+                    # 捕获 Console 输出
+                    output_buf = io.StringIO()
+                    with contextlib.redirect_stdout(output_buf), contextlib.redirect_stderr(output_buf):
+                        should_continue = dispatch_command(raw_message.strip(), agent)
+                    reply = output_buf.getvalue().strip()
+                    if not reply:
+                        reply = "✅ 命令已执行"
+                    _emit({"type": "done", "reply": reply})
+                    logger.info("[Server] slash 命令完成: %d 字符", len(reply))
+                except Exception as e:
+                    logger.error("[Server] 命令执行异常: %s", e, exc_info=True)
+                    _emit({"type": "error", "message": f"命令执行出错: {e}"})
+                continue
+
             try:
                 reply = agent.chat(user_message)
                 _emit({"type": "done", "reply": reply})
