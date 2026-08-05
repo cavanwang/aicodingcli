@@ -175,6 +175,14 @@ LOG_DIR: Path = Path.home() / ".aicoding" / "logs"
 COMPRESS_THRESHOLD: int = int(os.getenv("COMPRESS_THRESHOLD", "30"))
 COMPRESS_KEEP_RECENT: int = int(os.getenv("COMPRESS_KEEP_RECENT", "10"))
 
+# 上下文预算（任务 D2）：估算 token 超过 max*ratio 时强制压缩
+CONTEXT_MAX_TOKENS: int = int(os.getenv("CONTEXT_MAX_TOKENS", "120000"))
+CONTEXT_BUDGET_RATIO: float = float(os.getenv("CONTEXT_BUDGET_RATIO", "0.8"))
+
+# 项目记忆按需注入（任务 D3）
+MEMORY_FULL_INJECT_CHARS: int = int(os.getenv("MEMORY_FULL_INJECT_CHARS", "2000"))
+MEMORY_INJECT_BUDGET_CHARS: int = int(os.getenv("MEMORY_INJECT_BUDGET_CHARS", "4000"))
+
 
 def validate() -> None:
     """启动前校验，缺少关键配置时立即报错。"""

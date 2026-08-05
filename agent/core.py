@@ -7,6 +7,7 @@ from openai import OpenAI
 from rich.console import Console
 
 import config
+from agent.context import ContextBudget
 from agent.logger import get_logger
 from agent.recovery import RecoveryManager
 from agent.task_planner import TaskPlanner
@@ -16,7 +17,11 @@ from agent.tools.task_tools import set_planner
 from agent.tools.memory_tools import set_memory
 from agent.project import build_context
 from agent.project_config import build_project_prompt
-from agent.project_memory import build_project_memory_prompt
+from agent.project_memory import (
+    build_project_memory_prompt,
+    load_project_memory,
+    select_relevant_sections,
+)
 from agent.tracer import ExecutionTracer
 from agent.usage import UsageTracker
 from agent.todo import TodoList
@@ -306,15 +311,16 @@ class Agent:
             logger.warning("LLM 摘要生成失败，将回退到本地摘要: %s", e)
             return None
 
-    def compress_history(self) -> bool:
+    def compress_history(self, force: bool = False) -> bool:
         """压缩对话历史：将旧消息替换为 LLM 智能摘要（失败时回退到本地摘要）。
 
         返回 True 表示执行了压缩，False 表示不需要压缩。
+        force=True 时跳过消息数阈值检查（供上下文预算护栏强制触发）。
         """
         threshold = config.COMPRESS_THRESHOLD
         keep_recent = config.COMPRESS_KEEP_RECENT
 
-        if len(self._messages) <= threshold:
+        if not force and len(self._messages) <= threshold:
             return False
 
         boundary = self._find_compress_boundary(keep_recent)
@@ -351,6 +357,31 @@ class Agent:
         )
         return True
 
+    def _ensure_context_budget(self) -> None:
+        """上下文预算护栏（任务 D2）：超预算先强制压缩，仍超则截断旧 tool 结果。"""
+        budget = ContextBudget(config.CONTEXT_MAX_TOKENS, config.CONTEXT_BUDGET_RATIO)
+        if not budget.is_over_budget(self._messages):
+            return
+        logger.warning("上下文超出预算(%s)，触发强制压缩", budget.report(self._messages))
+        self.compress_history(force=True)
+        if not budget.is_over_budget(self._messages):
+            return
+        # 仍超预算：截断保留窗口外的旧 tool 结果（低价值大块内容）
+        keep = config.COMPRESS_KEEP_RECENT
+        cut = max(1, len(self._messages) - keep)
+        truncated = 0
+        for i in range(1, cut):
+            msg = self._messages[i]
+            content = msg.get("content") or ""
+            if msg["role"] == "tool" and len(content) > 200:
+                msg["content"] = (
+                    content[:100]
+                    + f"\n...(旧工具结果已截断，原长 {len(content)} 字符，如需详情可重新调用工具)"
+                )
+                truncated += 1
+        logger.info("预算护栏截断 %d 条旧工具结果，当前 %s", truncated,
+                    budget.report(self._messages))
+
     # ──────────────────────────────────────────────
     # 核心对话方法
     # ──────────────────────────────────────────────
@@ -362,6 +393,9 @@ class Agent:
 
         # 进度上下文注入：将 TaskPlan + Todo 摘要注入 system prompt
         self._inject_progress_context()
+
+        # 记忆按需注入（任务 D3）：大记忆按当前任务关键词筛选相关段落
+        self._inject_relevant_memory(user_message)
 
         # 自动压缩：消息数超过阈值时压缩旧消息
         if self.compress_history():
@@ -380,6 +414,9 @@ class Agent:
         for round_idx in range(self._max_rounds):
             logger.debug("LLM 请求: round=%d, messages=%d", round_idx + 1, len(self._messages))
             self._tracer.record_round(round_idx + 1, len(self._messages))
+
+            # 上下文预算护栏：超预算时强制压缩/截断旧工具结果
+            self._ensure_context_budget()
 
             if self._debug:
                 console.print(
@@ -765,6 +802,24 @@ class Agent:
                 "content": f"[进度感知] {progress_msg}",
             })
             logger.debug("进度注入: %s", progress_msg)
+
+    def _inject_relevant_memory(self, user_message: str) -> None:
+        """记忆按需注入（任务 D3）：大记忆按当前任务关键词筛选相关段落。
+
+        小记忆（≤ MEMORY_FULL_INJECT_CHARS）已在 system prompt 全量注入，此处跳过。
+        """
+        content = load_project_memory()
+        if not content or len(content) <= config.MEMORY_FULL_INJECT_CHARS:
+            return
+        relevant = select_relevant_sections(
+            content, user_message, config.MEMORY_INJECT_BUDGET_CHARS
+        )
+        if relevant and relevant != content:
+            self._messages.append({
+                "role": "system",
+                "content": f"[项目记忆·与当前任务相关段落]\n{relevant}",
+            })
+            logger.debug("记忆按需注入: %d/%d 字符", len(relevant), len(content))
 
     def _attach_error_to_current_todo(self, error: str) -> None:
         """将错误信息附加到当前进行中的 Todo 项。"""

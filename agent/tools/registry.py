@@ -412,7 +412,7 @@ _REGISTRY: list[dict] = [
         "requires_confirm": False,
         "schema": {
             "name": "get_related_files",
-            "description": "查找引用了指定文件的其他文件，用于评估修改影响范围",
+            "description": "查找与指定文件相关的其他文件：引用关系 + git 共现历史（经常一起提交的文件），用于评估修改影响范围和发现隐含耦合",
             "parameters": {
                 "type": "object",
                 "properties": {

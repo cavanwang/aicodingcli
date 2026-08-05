@@ -127,10 +127,37 @@ def analyze_changes() -> str:
     return "\n".join(result)
 
 
+def _git_co_occurrence(file_path: str, max_commits: int = 100) -> list[tuple[str, int]]:
+    """统计 git 历史中与目标文件经常一起提交的文件（共现权重）。
+
+    返回 [(文件路径, 共现提交次数)]，按次数降序，不含目标文件自身。
+    注意：不能用 pathspec 过滤（会使 --name-only 只输出匹配文件），
+    改为列出全部提交文件后在本地过滤包含目标的提交。
+    """
+    path = file_path.lstrip("./") or file_path
+    output = _git(f"log -{max_commits} --name-only --pretty=format:'###COMMIT'")
+    if output == "(无输出)" or output.startswith("git 执行失败"):
+        return []
+
+    counts: dict[str, int] = {}
+    for block in output.split("###COMMIT"):
+        files = {
+            ln.strip() for ln in block.splitlines()
+            if ln.strip() and not ln.strip().startswith(("fatal:", "error:"))
+        }
+        if path not in files:
+            continue  # 只统计包含目标文件的提交
+        for f in files - {path}:
+            counts[f] = counts.get(f, 0) + 1
+
+    return sorted(counts.items(), key=lambda kv: -kv[1])
+
+
 def get_related_files(file_path: str) -> str:
-    """查找引用了指定文件的其他文件。
+    """查找与指定文件相关的其他文件：引用关系 + git 共现历史。
 
     用于评估修改影响范围：如果修改了 X，哪些文件可能需要一起改。
+    共现权重：git 历史中经常一起提交的文件，往往存在隐含耦合。
     """
     target = Path(file_path)
     if not target.suffix:
@@ -172,31 +199,39 @@ def get_related_files(file_path: str) -> str:
             if output != "(无输出)" and not output.startswith("git 执行失败"):
                 results.append(output)
 
-    if not results:
-        return f"未找到引用 '{module_name}' 的文件"
-
-    # 合并去重
-    all_lines = set()
+    # 提取引用文件去重
+    related_files = set()
     for r in results:
         for line in r.split("\n"):
             line = line.strip()
             if line and not line.startswith("Binary"):
-                all_lines.add(line)
+                # git grep -n 输出格式: file:line:content
+                match = re.match(r'^([^:]+):', line)
+                if match:
+                    related_files.add(match.group(1))
+    related_files.discard(file_path.lstrip("./"))
 
-    # 提取文件名去重
-    related_files = set()
-    for line in sorted(all_lines):
-        # git grep -n 输出格式: file:line:content
-        match = re.match(r'^([^:]+):', line)
-        if match:
-            related_files.add(match.group(1))
+    # git 共现历史
+    co_occurred = _git_co_occurrence(file_path)
 
-    if not related_files:
-        return f"未找到引用 '{module_name}' 的文件"
+    if not related_files and not co_occurred:
+        return f"未找到与 '{module_name}' 相关的文件（无引用、无 git 共现记录）"
 
-    result = [f"## 引用 '{module_name}' 的文件", ""]
-    for f in sorted(related_files):
-        result.append(f"  - {f}")
-    result.append(f"\n共 {len(related_files)} 个文件可能受影响")
+    out = [f"## 与 '{file_path}' 相关的文件", ""]
+    if related_files:
+        out.append("### 引用关系（import/require）")
+        for f in sorted(related_files):
+            out.append(f"  - {f}")
+        out.append("")
+    if co_occurred:
+        out.append("### git 共现历史（经常一起修改，隐含耦合风险高）")
+        for f, cnt in co_occurred[:10]:
+            out.append(f"  - {f}（同提交 {cnt} 次）")
+        out.append("")
+    both = sorted(related_files & {f for f, _ in co_occurred})
+    if both:
+        out.append(f"⚠️ 同时命中引用与共现，修改时优先检查: {', '.join(both)}")
+    else:
+        out.append(f"共 {len(related_files)} 个引用文件、{len(co_occurred)} 个共现文件")
 
-    return "\n".join(result)
+    return "\n".join(out)

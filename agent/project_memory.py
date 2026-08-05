@@ -172,6 +172,74 @@ def append_project_memory(section: str, content: str, workspace: Path | None = N
         return f"❌ 追加失败: {e}"
 
 
+def _split_sections(content: str) -> list[tuple[str, str]]:
+    """按 Markdown 标题（# / ## / ###）切分记忆为段落。
+
+    返回 [(标题, 段落全文)]；标题前的前导文本归入 "<概述>" 段。
+    """
+    sections: list[tuple[str, str]] = []
+    current_title = "<概述>"
+    current_lines: list[str] = []
+    for line in content.splitlines(keepends=True):
+        if line.startswith("#"):
+            if "".join(current_lines).strip():
+                sections.append((current_title, "".join(current_lines)))
+            current_title = line.strip().lstrip("#").strip() or "<标题>"
+            current_lines = [line]
+        else:
+            current_lines.append(line)
+    if "".join(current_lines).strip():
+        sections.append((current_title, "".join(current_lines)))
+    return sections
+
+
+def _extract_keywords(text: str) -> set[str]:
+    """从用户消息提取关键词：ASCII 单词（≥2字符）+ 中文二元组。"""
+    import re
+    words = set(w.lower() for w in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{1,}", text))
+    cjk = re.findall(r"[\u4e00-\u9fff]", text)
+    bigrams = {cjk[i] + cjk[i + 1] for i in range(len(cjk) - 1)}
+    return words | bigrams
+
+
+def select_relevant_sections(content: str, user_message: str,
+                             budget_chars: int) -> str:
+    """按当前任务关键词筛选记忆段落（任务 D3 按需注入）。
+
+    规则：
+    - 首段（概述）始终保留
+    - 其余段落按关键词命中得分降序，在预算内选取
+    - 无任何命中时返回全文（宁多勿漏，避免错误过滤）
+    """
+    sections = _split_sections(content)
+    if not sections:
+        return content
+
+    keywords = _extract_keywords(user_message or "")
+    scored: list[tuple[int, int, str, str]] = []  # (score, idx, title, text)
+    for idx, (title, text) in enumerate(sections):
+        low = (title + "\n" + text).lower()
+        score = sum(low.count(k) for k in keywords)
+        scored.append((score, idx, title, text))
+
+    if all(s[0] == 0 for s in scored):
+        return content  # 无命中 → 全文注入兜底
+
+    # 首段必留 + 其余按得分降序
+    picked: list[tuple[int, str, str]] = [(0, scored[0][2], scored[0][3])]
+    used = len(scored[0][3])
+    for score, idx, title, text in sorted(scored[1:], key=lambda s: (-s[0], s[1])):
+        if score <= 0:
+            break
+        if used + len(text) > budget_chars:
+            continue
+        picked.append((idx, title, text))
+        used += len(text)
+
+    picked.sort(key=lambda p: p[0])  # 恢复原文顺序
+    return "".join(text for _, _, text in picked)
+
+
 def build_project_memory_prompt(workspace: Path | None = None) -> str:
     """构建项目记忆注入文本，用于追加到 system prompt。
 

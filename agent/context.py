@@ -1,28 +1,52 @@
-# agent/context.py
+"""上下文预算管理（Phase 11 任务 D2）。
+
+职责：
+- 轻量 token 估算（不依赖 tiktoken：混合文本按 ~1.8 字符/token 估算）
+- 判断消息历史是否超出上下文预算，供 Agent 主循环触发强制压缩/截断
+"""
+
+from __future__ import annotations
+
+import json
 
 
-import tiktoken
+def estimate_text_tokens(text: str) -> int:
+    """估算单段文本的 token 数。
 
-class ContextManager:
-    def __init__(self, max_tokens: int = 120_000):
-        self._max_tokens = max_tokens
-        self._encoder = tiktoken.encoding_for_model("gpt-4o")
+    经验值：中英混合文本约 1.8 字符/token，取上整保证偏保守（宁可早压缩）。
+    """
+    if not text:
+        return 0
+    return max(1, int(len(text) / 1.8) + 1)
 
-    def count(self, messages: list[dict]) -> int:
-        return sum(
-            len(self._encoder.encode(m.get("content") or ""))
-            for m in messages
-        )
 
-    def trim(self, messages: list[dict]) -> list[dict]:
-        """保留 system + 最近 N 轮，中间做摘要。"""
-        system = messages[0]
-        history = messages[1:]
+def estimate_messages_tokens(messages: list[dict]) -> int:
+    """估算消息列表的总 token 数（含 content 与 tool_calls 序列化开销）。"""
+    total = 0
+    for m in messages:
+        total += estimate_text_tokens(m.get("content") or "")
+        tool_calls = m.get("tool_calls")
+        if tool_calls:
+            total += estimate_text_tokens(json.dumps(tool_calls, ensure_ascii=False))
+        total += 4  # 每条消息的角色/分隔开销
+    return total
 
-        while self.count([system] + history) > self._max_tokens:
-            # 策略：把最早的几轮压缩成一条摘要
-            oldest = history[:4]  # 取最早 2 轮(user+assistant)
-            summary = self._summarize(oldest)
-            history = [{"role": "user", "content": f"[历史摘要] {summary}"}] + history[4:]
 
-        return [system] + history
+class ContextBudget:
+    """上下文预算检查器。"""
+
+    def __init__(self, max_tokens: int, ratio: float = 0.8):
+        self.max_tokens = max_tokens
+        self.ratio = ratio
+
+    @property
+    def threshold(self) -> int:
+        """触发预算控制的 token 阈值（max_tokens * ratio）。"""
+        return int(self.max_tokens * self.ratio)
+
+    def is_over_budget(self, messages: list[dict]) -> bool:
+        return estimate_messages_tokens(messages) > self.threshold
+
+    def report(self, messages: list[dict]) -> str:
+        used = estimate_messages_tokens(messages)
+        return f"{used}/{self.max_tokens} tokens（阈值 {self.threshold}）"
