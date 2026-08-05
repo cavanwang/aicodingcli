@@ -15,8 +15,11 @@ from agent.usage import UsageStats, UsageTracker
 # ──────────────────────────────────────────────
 
 @pytest.fixture()
-def tracker():
-    """返回一个干净的 UsageTracker。"""
+def tracker(monkeypatch, tmp_path):
+    """返回一个干净的 UsageTracker（使用临时目录）。"""
+    usage_dir = tmp_path / "usage"
+    usage_dir.mkdir()
+    monkeypatch.setattr("agent.usage.USAGE_DIR", usage_dir)
     return UsageTracker()
 
 

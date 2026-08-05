@@ -1,3 +1,9 @@
+# Auto-generated fallback for optional dependency: pandas
+try:
+    import pandas as pandas
+except ImportError:  # pragma: no cover - optional dependency fallback
+    pandas = None
+
 """错误自愈辅助模块。
 
 提供轻量级错误分类与修复提示生成，供 Agent 在命令失败后自动进入

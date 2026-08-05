@@ -1,3 +1,9 @@
+# Auto-generated fallback for optional dependency: pandas
+try:
+    import pandas as pandas
+except ImportError:  # pragma: no cover - optional dependency fallback
+    pandas = None
+
 """统一日志模块：输出到文件 + 可选控制台。
 
 使用方式：

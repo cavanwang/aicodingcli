@@ -274,7 +274,8 @@ class TestQuickScan:
         result = quick_scan()
         for fp in result:
             assert "__pycache__" not in fp
-            assert ".git" not in fp
+            # 检查 .git 目录（不包含 .gitignore 等文件）
+            assert "/.git/" not in fp and not fp.startswith(".git/")
             assert "node_modules" not in fp
             assert not fp.endswith(".pyc")
 
