@@ -45,11 +45,11 @@ class SandboxExecutor:
     def build_profile(self) -> str:
         """动态生成 sandbox-exec profile（Scheme 语法）。
 
-        规则（按匹配优先级从上到下）：
+        规则（sandbox-exec 使用后匹配优先 last-match-wins）：
         1. allow default — 默认放行（读取系统库等）
-        2. deny file-read* HOME — 禁止读取 $HOME 下所有文件
-        3. allow file-read* 项目目录 — 放行工作目录
-        4. allow file-read* Python 运行时 — 放行 Python/Node 路径
+        2. deny file-read* HOME — 先禁止读取 $HOME 下所有文件
+        3. allow file-read* 工作目录 — 再放行工作目录（可能在 $HOME 外）
+        4. allow file-read* Agent 项目目录和 Python 运行时 — 最后放行具体路径
         5. deny file-read* /etc — 禁止读取系统配置
         6. deny file-write* — 禁止一切写入
         7. allow file-write* 工作目录 — 仅放行写入工作目录
@@ -65,14 +65,14 @@ class SandboxExecutor:
             "(version 1)",
             "(allow default)",
             "",
-            "; ── 读取控制 ──",
-            f"; 禁止读取 $HOME 下所有文件",
+            "; ── 读取控制（sandbox-exec 使用后匹配优先）──",
+            "; 先禁止读取 $HOME 下所有文件",
             f'(deny file-read* (regex #"{re.escape(str(home))}/.*"))',
             "",
-            "; 放行工作目录（可能在 $HOME 外，如 /tmp/agent-test）",
+            "; 再放行工作目录（可能在 $HOME 外，如 /tmp/agent-test）",
             f'(allow file-read* (regex #"{re.escape(workspace)}/.*"))',
             "",
-            "; 放行 Python/Node 运行时路径",
+            "; 最后放行 Agent 项目目录和 Python/Node 运行时路径",
         ]
 
         for rp in runtime_paths:
@@ -103,6 +103,10 @@ class SandboxExecutor:
 
         paths: list[str] = []
 
+        # ✅ 添加 Agent 项目自身所在的根目录（确保 Agent 可以读取自己的代码）
+        agent_project_root = Path(__file__).resolve().parent.parent
+        paths.append(str(agent_project_root))
+
         # Python 可执行文件所在目录的父级（如 .venv 或 miniconda）
         python_home = Path(sys.executable).resolve()
         # 向上找到 venv 或 conda 根目录
@@ -132,7 +136,7 @@ class SandboxExecutor:
                 paths.append(rp)
 
         # 系统级路径
-        for sys_path in ["/usr/lib", "/Library"]:
+        for sys_path in ["/usr/bin", "/usr/lib", "/Library"]:
             if sys_path not in paths:
                 paths.append(sys_path)
 
