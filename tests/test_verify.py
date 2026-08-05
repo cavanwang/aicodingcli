@@ -1,11 +1,13 @@
 """verify_changes 工具测试。"""
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import config
+import agent.tools.verify as verify_module
 from agent.tools.verify import (
     verify_changes,
     _get_changed_files,
@@ -140,6 +142,27 @@ class TestRunTests:
         """无测试可运行时返回提示。"""
         result = _run_tests([])
         assert "无测试可运行" in result
+
+    def test_uses_current_interpreter(self, workspace, monkeypatch):
+        """必须用当前解释器跑测试，不能用裸 python（防解析到无 pytest 的系统环境）。"""
+        captured = {}
+
+        class FakeResult:
+            returncode = 0
+            stdout = "1 passed"
+            stderr = ""
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["env"] = kwargs.get("env")
+            return FakeResult()
+
+        monkeypatch.setattr(verify_module.subprocess, "run", fake_run)
+        _run_tests(["tests/test_pass.py"])
+        assert captured["cmd"].startswith(sys.executable)
+        assert "pytest" in captured["cmd"]
+        # PATH 必须包含当前解释器所在目录
+        assert str(Path(sys.executable).parent) in captured["env"]["PATH"]
 
 
 class TestVerifyChanges:

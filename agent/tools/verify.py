@@ -1,6 +1,8 @@
 """验证工具：修改后自动发现并运行相关测试。"""
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 import config
 
@@ -115,15 +117,20 @@ def _run_tests(test_files: list[str]) -> str:
     if not test_files:
         return "(无测试可运行)"
     
-    # 构建 pytest 命令
+    # 构建 pytest 命令：必须用当前解释器（项目 venv），
+    # 裸 python 可能解析到系统环境（无 pytest，导致误报失败）
     test_paths = " ".join(test_files)
-    cmd = f"python -m pytest {test_paths} -v --tb=short"
-    
+    cmd = f"{sys.executable} -m pytest {test_paths} -v --tb=short"
+
+    # 确保子进程 PATH 能找到同一解释器的可执行文件（venv 未激活场景）
+    env = os.environ.copy()
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+
     try:
         result = subprocess.run(
             cmd,
             shell=True, capture_output=True, text=True,
-            timeout=60, cwd=str(config.WORKSPACE_DIR),
+            timeout=60, cwd=str(config.WORKSPACE_DIR), env=env,
         )
         
         output = result.stdout
