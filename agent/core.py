@@ -430,7 +430,8 @@ class Agent:
                 self._execute_tools(tool_calls)
                 continue
 
-            console.print()  # 流式打印后换行
+            if not self._quiet:
+                console.print()  # 流式打印后换行
             return content
 
         logger.info("达到最大工具调用轮数 (%d)，停止执行", self._max_rounds)
@@ -577,14 +578,15 @@ class Agent:
             func_name = tc["name"]
             func_args = json.loads(tc["arguments"])
 
-            console.print(
-                f"\n  🔧 [bold cyan]{func_name}[/]({func_args})",
-                highlight=False,
-            )
+            if not self._quiet:
+                console.print(
+                    f"\n  🔧 [bold cyan]{func_name}[/]({func_args})",
+                    highlight=False,
+                )
             logger.info("工具调用: %s(%s)", func_name, func_args)
             self._usage.record_tool_call()
 
-            if self._debug:
+            if self._debug and not self._quiet:
                 console.print(
                     f"  [dim]📎 参数详情: {json.dumps(func_args, ensure_ascii=False, indent=2)}[/]",
                     highlight=False,
@@ -625,10 +627,11 @@ class Agent:
                             checkpoint_result = checkpoint_func(
                                 message="before-tool-change"
                             )
-                            console.print(
-                                f"  📝 [yellow]{checkpoint_result}[/]",
-                                highlight=False,
-                            )
+                            if not self._quiet:
+                                console.print(
+                                    f"  📝 [yellow]{checkpoint_result}[/]",
+                                    highlight=False,
+                                )
 
                     # 弹出仅用于确认逻辑的参数，不传给实际函数
                     func_args.pop("source", None)
@@ -676,11 +679,13 @@ class Agent:
                         self._recovery.max_attempts,
                     )
                     self._tracer.record_rollback(func_name, action["rollback_result"])
-                    console.print(
-                        f"  🔙 [yellow]自动回滚: {action['rollback_result']}[/]",
-                        highlight=False,
-                    )
-                console.print(f"  🛠️ [magenta]{recovery_prompt}[/]", highlight=False)
+                    if not self._quiet:
+                        console.print(
+                            f"  🔙 [yellow]自动回滚: {action['rollback_result']}[/]",
+                            highlight=False,
+                        )
+                if not self._quiet:
+                    console.print(f"  🛠️ [magenta]{recovery_prompt}[/]", highlight=False)
                 self._append_tool_result(
                     tc["id"], f"{result}\n\n[error_recovery]\n{recovery_prompt}"
                 )
@@ -702,7 +707,8 @@ class Agent:
 
             # 打印摘要
             display = result[:200] + "..." if len(result) > 200 else result
-            console.print(f"  📋 [green]{display}[/]", highlight=False)
+            if not self._quiet:
+                console.print(f"  📋 [green]{display}[/]", highlight=False)
 
             # 发送 tool_end 事件
             self._emit_stream("tool_end", {"name": func_name, "result": display})
@@ -713,10 +719,11 @@ class Agent:
                 self._emit_stream("todo", {"items": todo_items})
 
             if self._debug:
-                console.print(
-                    f"  [dim]📄 结果长度: {len(result)} 字符[/]",
-                    highlight=False,
-                )
+                if not self._quiet:
+                    console.print(
+                        f"  [dim]📄 结果长度: {len(result)} 字符[/]",
+                        highlight=False,
+                    )
                 logger.debug("工具结果 [%s]: %s", func_name, result[:500])
 
             self._append_tool_result(tc["id"], result)
@@ -808,7 +815,7 @@ def create_agent(confirm_fn=None, debug: bool = False, stream_callback=None, qui
     # 初始化 MCP 连接（如果有配置）
     if config.MCP_SERVERS:
         mcp_count = agent.init_mcp(config.MCP_SERVERS)
-        if mcp_count > 0:
+        if mcp_count > 0 and not quiet:
             console.print(
                 f"  🔌 [cyan]MCP 已连接: {mcp_count} 个外部工具[/]",
                 highlight=False,
