@@ -41,6 +41,7 @@ class Agent:
         max_result_len: int | None = None,
         debug: bool = False,
         stream_callback=None,
+        quiet: bool = False,
     ):
         self._client = client
         self._model = model
@@ -48,6 +49,7 @@ class Agent:
         self._confirm = confirm_fn
         self._debug = debug
         self._stream_callback = stream_callback  # 流式回调：用于 server 模式实时推送事件
+        self._quiet = quiet  # server 模式下禁用 console 输出，避免破坏 JSON 协议
         self._max_result_len = (
             max_result_len
             if max_result_len is not None
@@ -482,22 +484,26 @@ class Agent:
             if reasoning:
                 thinking_chunks += 1
                 if not in_thinking:
-                    console.print("\n  💭 ", end="", highlight=False)
+                    if not self._quiet:
+                        console.print("\n  💭 ", end="", highlight=False)
                     self._emit_stream("thinking_start")
                     in_thinking = True
                 thinking_content += reasoning
-                console.print(reasoning, end="", highlight=False, style="dim", markup=False)
+                if not self._quiet:
+                    console.print(reasoning, end="", highlight=False, style="dim", markup=False)
                 self._emit_stream("thinking", {"content": reasoning})
 
             # 文本片段：实时打印
             if delta.content:
                 text_chunks += 1
                 if in_thinking:
-                    console.print()  # 思考结束换行
+                    if not self._quiet:
+                        console.print()  # 思考结束换行
                     self._emit_stream("thinking_end")
                     in_thinking = False
                 collected_content += delta.content
-                console.print(delta.content, end="", highlight=False, markup=False)
+                if not self._quiet:
+                    console.print(delta.content, end="", highlight=False, markup=False)
                 self._emit_stream("text", {"content": delta.content})
 
             # 工具调用片段：累积
@@ -766,7 +772,7 @@ class Agent:
 # ──────────────────────────────────────────────────
 
 
-def create_agent(confirm_fn=None, debug: bool = False, stream_callback=None) -> Agent:
+def create_agent(confirm_fn=None, debug: bool = False, stream_callback=None, quiet: bool = False) -> Agent:
     """读取配置，创建并返回一个就绪的 Agent 实例。"""
     config.validate()
 
@@ -796,6 +802,7 @@ def create_agent(confirm_fn=None, debug: bool = False, stream_callback=None) -> 
         max_result_len=config.MAX_TOOL_RESULT_CHARS,
         debug=debug,
         stream_callback=stream_callback,
+        quiet=quiet,
     )
 
     # 初始化 MCP 连接（如果有配置）

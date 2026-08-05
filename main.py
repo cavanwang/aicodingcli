@@ -127,10 +127,10 @@ def run_server(workspace: str | None = None) -> None:
         import config
         importlib.reload(config)
 
-    # 创建 Agent（server 模式自动确认所有操作）
+    # 创建 Agent（server 模式自动确认所有操作，禁用 console 输出避免破坏 JSON 协议）
     from agent import create_agent
     logger.info("[Server] 启动: workspace=%s", workspace or ".")
-    agent = create_agent(confirm_fn=_server_confirm_fn, debug=False, stream_callback=_stream_callback)
+    agent = create_agent(confirm_fn=_server_confirm_fn, debug=False, stream_callback=_stream_callback, quiet=True)
 
     # 发送就绪消息
     _emit({"type": "ready", "model": agent._model, "workspace": workspace or "."})
