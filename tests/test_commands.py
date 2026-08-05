@@ -78,9 +78,9 @@ def mock_agent():
 class TestCommandRegistry:
     """命令注册表测试。"""
 
-    def test_all_12_commands_registered(self):
-        """12 个命令全部注册。"""
-        assert len(COMMANDS) == 12
+    def test_all_15_commands_registered(self):
+        """15 个命令全部注册。"""
+        assert len(COMMANDS) == 15
 
     def test_expected_commands_exist(self):
         """预期的命令都存在。"""
@@ -88,6 +88,7 @@ class TestCommandRegistry:
             "/help", "/compact", "/cost", "/clear",
             "/status", "/review", "/doctor",
             "/usage", "/todo", "/plan", "/memory", "/init",
+            "/save-memory", "/sessions", "/resume",
         ]
         for cmd in expected:
             assert cmd in COMMANDS, f"{cmd} 未注册"

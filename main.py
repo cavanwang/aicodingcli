@@ -125,6 +125,11 @@ def run_server(workspace: str | None = None) -> None:
 
         elif msg_type == "quit":
             logger.info("[Server] 收到 quit，保存状态...")
+            # 保存会话历史
+            if len(agent._messages) > 1:
+                from agent.session import save_session
+                session_path = save_session(agent)
+                logger.info("[Server] 会话已保存: %s", session_path.name)
             # 保存状态
             if agent.tracer.event_count > 0:
                 agent.tracer.save()

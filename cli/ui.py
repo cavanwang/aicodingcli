@@ -58,6 +58,11 @@ def run() -> None:
             continue
 
         if user_input.lower() in ("quit", "exit", "q"):
+            # 保存会话历史
+            from agent.session import save_session
+            if len(agent._messages) > 1:  # 有实际对话内容
+                session_path = save_session(agent)
+                console.print(f"[dim]💾 会话已保存: {session_path.name}[/]")
             # 保存执行轨迹
             if agent.tracer.event_count > 0:
                 trace_path = agent.tracer.save()

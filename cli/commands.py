@@ -278,6 +278,88 @@ def cmd_init(agent) -> bool:
     return True
 
 
+def cmd_save_memory(agent) -> bool:
+    """/save-memory — 将当前项目理解保存到记忆文件。"""
+    from rich.console import Console
+    from agent.project_memory import load_project_memory, get_memory_path
+    console = Console()
+
+    memory_path = get_memory_path()
+    existing = load_project_memory()
+
+    if existing:
+        console.print(f"📝 当前项目记忆文件: {memory_path}")
+        console.print(f"   内容长度: {len(existing)} 字符")
+        console.print()
+        console.print("[dim]提示: 使用 save_memory 工具更新记忆，或手动编辑该文件[/]")
+        console.print()
+        # 显示前 500 字符
+        preview = existing[:500]
+        if len(existing) > 500:
+            preview += f"\n... (还有 {len(existing) - 500} 字符)"
+        console.print(preview)
+    else:
+        console.print(f"📝 项目记忆文件不存在: {memory_path}")
+        console.print()
+        console.print("[dim]提示: 让 Agent 探索项目后，调用 save_memory 工具保存记忆[/]")
+        console.print("[dim]或者手动创建 .agent/memory.md 文件[/]")
+
+    return True
+
+
+def cmd_sessions(agent, args: str = "") -> bool:
+    """/sessions — 列出历史会话。"""
+    from rich.console import Console
+    from agent.session import list_sessions, format_sessions_list, delete_session
+    console = Console()
+
+    # /sessions delete <id> — 删除指定会话
+    if args.startswith("delete "):
+        sid = args[7:].strip()
+        if not sid:
+            console.print("[red]用法: /sessions delete <session_id>[/]")
+            return True
+        if delete_session(sid):
+            console.print(f"✅ 已删除会话: {sid}")
+        else:
+            console.print(f"❌ 会话不存在: {sid}")
+        return True
+
+    sessions = list_sessions()
+    console.print("\n[bold]📜 历史会话[/]\n")
+    console.print(format_sessions_list(sessions))
+    console.print()
+    console.print("[dim]用法: /resume <session_id> 恢复会话 | /sessions delete <id> 删除[/]")
+    return True
+
+
+def cmd_resume(agent, args: str = "") -> bool:
+    """/resume — 恢复指定历史会话。"""
+    from rich.console import Console
+    from agent.session import load_session, list_sessions, format_sessions_list
+    console = Console()
+
+    sid = args.strip()
+
+    if not sid:
+        # 无参数时显示最近会话列表
+        sessions = list_sessions(limit=10)
+        console.print("\n[bold]📜 最近会话[/]\n")
+        console.print(format_sessions_list(sessions))
+        console.print()
+        console.print("[dim]用法: /resume <session_id>[/]")
+        return True
+
+    if load_session(agent, sid):
+        msg_count = len(agent._messages)
+        console.print(f"✅ 已恢复会话: [cyan]{sid}[/] ({msg_count} 条消息)")
+        return True
+    else:
+        console.print(f"❌ 无法加载会话: {sid}")
+        console.print("[dim]输入 /sessions 查看历史会话[/]")
+        return True
+
+
 # ──────────────────────────────────────────────
 # 命令注册表
 # ──────────────────────────────────────────────
@@ -295,6 +377,9 @@ COMMANDS: dict[str, tuple[CommandHandler, str]] = {
     "/plan":    (cmd_plan,    "显示当前任务计划"),
     "/memory":  (cmd_memory,  "显示代码记忆摘要"),
     "/init":    (cmd_init,    "在当前目录生成 .agent.md 模板"),
+    "/save-memory": (cmd_save_memory, "查看/保存项目记忆文件"),
+    "/sessions": (cmd_sessions, "列出历史会话"),
+    "/resume":  (cmd_resume,  "恢复指定历史会话"),
 }
 
 
@@ -310,6 +395,7 @@ def dispatch_command(user_input: str, agent) -> bool:
     """
     parts = user_input.strip().split(maxsplit=1)
     cmd = parts[0].lower()
+    args = parts[1] if len(parts) > 1 else ""
 
     entry = COMMANDS.get(cmd)
     if entry is None:
@@ -322,8 +408,13 @@ def dispatch_command(user_input: str, agent) -> bool:
         return True
 
     handler, _ = entry
-    logger.info("Slash 命令: %s", cmd)
+    logger.info("Slash 命令: %s %s", cmd, args[:50] if args else "")
     try:
+        # 支持带参数的命令（/sessions, /resume）
+        import inspect
+        sig = inspect.signature(handler)
+        if len(sig.parameters) >= 2:
+            return handler(agent, args)
         return handler(agent)
     except Exception as e:
         from rich.console import Console
