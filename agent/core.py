@@ -196,7 +196,7 @@ class Agent:
         return max(1, boundary)  # 至少保留 system prompt (index 0)
 
     def _build_summary_text(self, messages_to_compress: list[dict]) -> str:
-        """将旧消息构建为可读的摘要文本（不调用 LLM，纯本地摘要）。"""
+        """将旧消息构建为可读的摘要文本（本地截断摘要，作为 LLM 失败时的回退）。"""
         summary_parts = []
         user_msgs = [m for m in messages_to_compress if m["role"] == "user"]
         assistant_msgs = [m for m in messages_to_compress if m["role"] == "assistant"]
@@ -237,8 +237,66 @@ class Agent:
 
         return "\n".join(summary_parts) if summary_parts else "(无有效历史)"
 
+    def _llm_summarize(self, messages_to_compress: list[dict]) -> str | None:
+        """调用 LLM 生成智能摘要。失败时返回 None。"""
+        try:
+            # 构建待摘要的对话文本
+            conversation_parts = []
+            for m in messages_to_compress:
+                role = m.get("role", "unknown")
+                content = m.get("content", "") or ""
+                if role == "user" and content:
+                    conversation_parts.append(f"用户: {content[:500]}")
+                elif role == "assistant":
+                    if content and not m.get("tool_calls"):
+                        conversation_parts.append(f"助手: {content[:500]}")
+                    if m.get("tool_calls"):
+                        for tc in m["tool_calls"]:
+                            fn = tc.get("function", {})
+                            name = fn.get("name", "unknown")
+                            conversation_parts.append(f"助手调用工具: {name}")
+                elif role == "tool":
+                    tool_content = content[:300] if content else ""
+                    conversation_parts.append(f"工具结果: {tool_content}")
+
+            if not conversation_parts:
+                return None
+
+            conversation_text = "\n".join(conversation_parts)
+
+            response = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "你是一个对话摘要助手。请将以下编程对话历史压缩为简洁的摘要。\n"
+                            "要求：\n"
+                            "1. 保留用户的核心需求和意图\n"
+                            "2. 保留助手执行的关键操作和结果\n"
+                            "3. 保留重要的技术决策和发现\n"
+                            "4. 丢弃重复、冗余和细节性内容\n"
+                            "5. 用中文输出，控制在 500 字以内\n"
+                            "6. 直接输出摘要内容，不要加标题或前缀"
+                        ),
+                    },
+                    {"role": "user", "content": f"请摘要以下对话历史：\n\n{conversation_text}"},
+                ],
+                max_tokens=800,
+                temperature=0.3,
+            )
+
+            summary = response.choices[0].message.content
+            if summary and len(summary.strip()) > 20:
+                logger.info("LLM 智能摘要生成成功: %d 字符", len(summary))
+                return summary.strip()
+            return None
+        except Exception as e:
+            logger.warning("LLM 摘要生成失败，将回退到本地摘要: %s", e)
+            return None
+
     def compress_history(self) -> bool:
-        """压缩对话历史：将旧消息替换为摘要。
+        """压缩对话历史：将旧消息替换为 LLM 智能摘要（失败时回退到本地摘要）。
 
         返回 True 表示执行了压缩，False 表示不需要压缩。
         """
@@ -257,8 +315,11 @@ class Agent:
         if not to_compress:
             return False
 
-        # 构建摘要
-        summary_text = self._build_summary_text(to_compress)
+        # 构建摘要：优先 LLM 智能摘要，失败回退到本地截断
+        summary_text = self._llm_summarize(to_compress)
+        if not summary_text:
+            summary_text = self._build_summary_text(to_compress)
+            logger.info("使用本地截断摘要")
         compressed_msg = {
             "role": "system",
             "content": (

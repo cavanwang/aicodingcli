@@ -10,8 +10,12 @@ import * as logger from "./logger";
 let agentProcess: import("./agentProcess").AgentProcess | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // extensionUri = .../aicodingcli/vscode-extension，main.py 在父目录
-  const projectRoot = path.dirname(context.extensionUri.fsPath);
+  // 解析项目根目录：优先使用配置，其次工作区目录，最后回退到扩展父目录（开发模式）
+  const config = vscode.workspace.getConfiguration("aicoding");
+  const configuredPath = config.get<string>("projectPath", "");
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const devFallback = path.dirname(context.extensionUri.fsPath);
+  const projectRoot = configuredPath || workspaceFolder || devFallback;
 
   // 注册 WebView 侧边栏
   const chatProvider = new ChatPanelProvider(

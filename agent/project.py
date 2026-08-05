@@ -457,6 +457,7 @@ def build_context() -> str:
     frameworks = detect_frameworks()
     scan_result = scan_project()
     tips = generate_project_tips(project_type, frameworks)
+    module_overview = build_module_overview()
 
     type_line = f"- 类型：{project_type}"
     if frameworks:
@@ -469,6 +470,9 @@ def build_context() -> str:
         scan_result,
     ]
 
+    if module_overview:
+        sections.append(module_overview)
+
     if tips:
         tips_lines = ["## 常用命令参考"]
         for tip in tips:
@@ -476,3 +480,104 @@ def build_context() -> str:
         sections.append("\n".join(tips_lines))
 
     return "\n\n".join(sections) + "\n"
+
+
+# ──────────────────────────────────────────────
+# 核心模块概览：提取入口文件的 import 和方法签名
+# ──────────────────────────────────────────────
+
+# 入口文件识别规则（文件名 → 描述）
+_ENTRY_FILES: list[str] = [
+    "main.py", "app.py", "manage.py",
+    "index.js", "index.ts", "server.js", "server.ts",
+    "core.py", "__init__.py",
+]
+
+# 每个模块概览最大行数（防止注入太多）
+_MAX_OVERVIEW_LINES = 20
+
+
+def _extract_module_summary(file_path: Path) -> list[str]:
+    """从 Python/JS/TS 文件中提取 import 和 def/class 签名。"""
+    try:
+        lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+
+    summary: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        # Python: import / from ... import
+        if stripped.startswith("import ") or stripped.startswith("from "):
+            summary.append(stripped)
+        # Python: def / class
+        elif stripped.startswith("def ") or stripped.startswith("class "):
+            summary.append(stripped)
+        # JS/TS: import
+        elif stripped.startswith("import ") or stripped.startswith("const ") and "require" in stripped:
+            summary.append(stripped)
+        # JS/TS: export function / class
+        elif stripped.startswith("export "):
+            summary.append(stripped)
+        # 限制行数
+        if len(summary) >= _MAX_OVERVIEW_LINES:
+            summary.append("... (更多省略)")
+            break
+    return summary
+
+
+def build_module_overview() -> str:
+    """扫描项目入口文件和核心模块，生成概览摘要。"""
+    base = config.WORKSPACE_DIR
+    if not base.exists():
+        return ""
+
+    overview_sections: list[str] = []
+    seen: set[str] = set()
+
+    # 1. 扫描顶层入口文件
+    for entry_name in _ENTRY_FILES:
+        entry_path = base / entry_name
+        if entry_path.exists() and entry_name not in seen:
+            seen.add(entry_name)
+            summary = _extract_module_summary(entry_path)
+            if summary:
+                overview_sections.append(
+                    f"### {entry_name}\n" + "\n".join(summary)
+                )
+
+    # 2. 扫描 agent/ 或 src/ 目录下的 __init__.py 和核心模块
+    for sub_dir_name in ("agent", "src", "lib"):
+        sub_dir = base / sub_dir_name
+        if not sub_dir.is_dir():
+            continue
+        # __init__.py
+        init_file = sub_dir / "__init__.py"
+        if init_file.exists() and f"{sub_dir_name}/__init__.py" not in seen:
+            seen.add(f"{sub_dir_name}/__init__.py")
+            summary = _extract_module_summary(init_file)
+            if summary:
+                overview_sections.append(
+                    f"### {sub_dir_name}/__init__.py\n" + "\n".join(summary)
+                )
+        # 核心模块文件（*.py，排除 __init__.py 和 test_*.py）
+        for py_file in sorted(sub_dir.glob("*.py")):
+            rel = f"{sub_dir_name}/{py_file.name}"
+            if py_file.name.startswith(("__", "test_")) or rel in seen:
+                continue
+            seen.add(rel)
+            summary = _extract_module_summary(py_file)
+            if summary:
+                overview_sections.append(f"### {rel}\n" + "\n".join(summary))
+            # 限制概览模块数量
+            if len(overview_sections) >= 15:
+                break
+        if len(overview_sections) >= 15:
+            break
+
+    if not overview_sections:
+        return ""
+
+    return "## 核心模块概览\n\n" + "\n\n".join(overview_sections)
