@@ -42,7 +42,7 @@ _REGISTRY: list[dict] = [
         "requires_confirm": False,
         "schema": {
             "name": "read_file",
-            "description": "读取指定文件的内容（带行号）。可通过 start_line/end_line 指定范围。",
+            "description": "读取指定文件的内容（带行号）。可通过 start_line/end_line 指定范围。用于精读 find_files/search_in_files 定位到的文件；大文件先读关键范围再扩展",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -145,7 +145,7 @@ _REGISTRY: list[dict] = [
         "requires_confirm": False,
         "schema": {
             "name": "list_directory",
-            "description": "列出指定目录下的文件和子目录",
+            "description": "列出指定目录下的文件和子目录。了解目录布局的第一步，配合 read_file/find_files 逐层深入探索",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -163,7 +163,7 @@ _REGISTRY: list[dict] = [
         "requires_confirm": False,
         "schema": {
             "name": "find_files",
-            "description": "按 glob 模式查找文件，如 '*.py'、'*test*'、'config*'",
+            "description": "按 glob 模式查找文件，如 '*.py'、'*test*'、'config*'。不知道文件在哪时的第一步；找到候选后用 read_file 精读",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -188,7 +188,7 @@ _REGISTRY: list[dict] = [
         "requires_confirm": False,
         "schema": {
             "name": "search_in_files",
-            "description": "在工作目录的文件中搜索关键词（类似 grep -rn）",
+            "description": "在工作目录的文件中搜索关键词（类似 grep -rn）。已知关键词/符号名时用于定位具体位置，配合 file_pattern 缩小范围；无结果时换同义词或符号变体再试",
             "parameters": {
                 "type": "object",
                 "properties": {
