@@ -10,9 +10,11 @@ import * as logger from "./logger";
 let agentProcess: import("./agentProcess").AgentProcess | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // 解析项目根目录：优先使用配置，其次工作区目录，最后回退到扩展父目录（开发模式）
+  // Agent 安装目录（main.py 所在位置）：agentPath 配置 > 兼容旧 projectPath > 当前打开目录（开发模式） > 扩展父目录
+  // 注意：这里只影响定位 main.py，Agent 的工作目录始终取 VSCode 当前打开的项目目录（见 chatPanel）
   const config = vscode.workspace.getConfiguration("aicoding");
-  const configuredPath = config.get<string>("projectPath", "");
+  const configuredPath =
+    config.get<string>("agentPath", "") || config.get<string>("projectPath", "");
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const devFallback = path.dirname(context.extensionUri.fsPath);
   const projectRoot = configuredPath || workspaceFolder || devFallback;
@@ -28,6 +30,14 @@ export function activate(context: vscode.ExtensionContext): void {
       ChatPanelProvider.viewType,
       chatProvider,
     ),
+  );
+
+  // 工作区目录变化（打开新项目/切换文件夹）时重启 Agent，使 WORKSPACE_DIR 重新加载
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      logger.log("[Extension] 工作区变化，重启 Agent 以切换工作目录");
+      chatProvider.restartAgent();
+    }),
   );
 
   // 注册命令

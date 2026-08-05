@@ -43,13 +43,19 @@
       "properties": {
         "aicoding.pythonPath": {
           "type": "string",
-          "default": "python",
-          "description": "Python 解释器路径"
+          "default": "",
+          "description": "Python 解释器路径（为空时自动探测 agentPath/.venv/bin/python，再回退系统 python）"
+        },
+        "aicoding.agentPath": {
+          "type": "string",
+          "default": "",
+          "description": "Agent 安装目录（main.py 所在位置）。工作目录始终使用 VSCode 当前打开的项目目录"
         },
         "aicoding.projectPath": {
           "type": "string",
           "default": "",
-          "description": "Agent 工作目录（默认使用当前工作区根目录）"
+          "description": "已废弃：仅作 agentPath 的兼容别名，不建议使用",
+          "deprecationMessage": "请使用 aicoding.agentPath。工作目录始终取 VSCode 当前打开的项目目录"
         }
       }
     }

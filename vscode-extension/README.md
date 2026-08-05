@@ -79,8 +79,10 @@ code --install-extension vscode-extension/aicoding-assistant-0.1.0.vsix
 
 | 设置项 | 默认值 | 说明 |
 |---|---|---|
-| `aicoding.pythonPath` | `python` | Python 解释器路径。如果使用虚拟环境，填绝对路径，如 `/path/to/aicodingcli/.venv/bin/python` |
-| `aicoding.projectPath` | （空） | Agent 工作目录。留空则使用当前 VS Code 打开的工作区根目录 |
+| `aicoding.pythonPath` | （空） | Python 解释器路径。留空时自动探测 `agentPath/.venv/bin/python`，再回退系统 python |
+| `aicoding.agentPath` | （空） | Agent 安装目录（main.py 所在位置）。留空则使用当前打开的目录（开发模式） |
+
+> 工作目录无需配置：Agent 始终以 VS Code 当前打开的项目目录为工作基准，打开哪个目录就分析哪个目录。切换项目时 Agent 进程会自动重启。
 
 **推荐配置**（使用虚拟环境）：
 
@@ -89,7 +91,7 @@ code --install-extension vscode-extension/aicoding-assistant-0.1.0.vsix
 ```json
 {
   "aicoding.pythonPath": "/path/to/aicodingcli/.venv/bin/python",
-  "aicoding.projectPath": "/path/to/your/project"
+  "aicoding.agentPath": "/path/to/aicodingcli"
 }
 ```
 
@@ -142,4 +144,4 @@ ls ~/.aicoding/traces/
 | 聊天面板显示"进程错误" | 检查 `aicoding.pythonPath` 是否正确指向 Python 解释器 |
 | Agent 无响应 | 查看 VS Code 输出面板 "AI Coding"，检查是否有 stderr 错误 |
 | API 调用失败 | 检查项目根目录 `.env` 中的 `API_KEY` 和 `BASE_URL` |
-| 工具执行权限问题 | 检查 `aicoding.projectPath` 是否指向正确的工作目录 |
+| 工具执行权限问题 | 确认 VS Code 当前打开的目录就是目标项目（Agent 工作目录始终取当前打开目录） |

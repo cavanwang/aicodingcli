@@ -4,6 +4,7 @@
 
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
 import { AgentProcess, AgentMessage } from "./agentProcess";
 import * as logger from "./logger";
 
@@ -18,6 +19,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _agent: AgentProcess;
   private _projectRoot: string;
+  /** 当前 Agent 进程的工作目录（用于检测项目切换） */
+  private _currentWorkspace = "";
   /** 当前会话消息历史 */
   private _messages: ChatMessage[] = [];
 
@@ -128,22 +131,58 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * 确保 Agent 进程正在运行。
+   * 重启 Agent 进程（工作区切换时调用，使 WORKSPACE_DIR 重新加载）。
+   * 不主动启动，等下次用户发消息时 _ensureAgentRunning 以新目录拉起。
+   */
+  restartAgent(): void {
+    logger.log("[ChatPanel] 重启 Agent（工作目录切换）");
+    this._agent.stop();
+    this._currentWorkspace = "";
+  }
+
+  /**
+   * 解析 Python 解释器：显式配置 > agentPath/.venv/bin/python > 裸 python。
+   * 裸 python 可能解析到无依赖的系统环境（已踩过的坑），优先探测项目 venv。
+   */
+  private _resolvePythonPath(): string {
+    const config = vscode.workspace.getConfiguration("aicoding");
+    const configured = config.get<string>("pythonPath", "");
+    if (configured) {
+      return configured;
+    }
+    const venvPython = path.join(this._projectRoot, ".venv", "bin", "python");
+    if (fs.existsSync(venvPython)) {
+      logger.log(`[ChatPanel] 探测到 venv 解释器: ${venvPython}`);
+      return venvPython;
+    }
+    logger.log("[ChatPanel] 未探测到 venv，回退裸 python（可能缺依赖）");
+    return "python";
+  }
+
+  /**
+   * 确保 Agent 进程正在运行，且工作目录与 VSCode 当前打开的项目一致。
    */
   private _ensureAgentRunning(): void {
+    // 工作目录始终取 VSCode 当前打开的项目目录（不再被 projectPath 配置劫持）
+    const workspace =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || this._projectRoot;
+
+    // 工作目录变化 → 重启进程（WORKSPACE_DIR 在启动时加载，无法热切换）
+    if (this._agent.ready && this._currentWorkspace !== workspace) {
+      logger.log(
+        `[ChatPanel] 工作目录变化 ${this._currentWorkspace} → ${workspace}，重启 Agent`,
+      );
+      this._agent.stop();
+    }
+
     if (this._agent.ready) {
       return;
     }
 
     logger.log("[ChatPanel] 启动 Agent 进程...");
 
-    const config = vscode.workspace.getConfiguration("aicoding");
-    const pythonPath = config.get<string>("pythonPath", "python");
-    const workspace =
-      config.get<string>("projectPath") ||
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ||
-      this._projectRoot;
-
+    const pythonPath = this._resolvePythonPath();
+    this._currentWorkspace = workspace;
     this._agent.start(pythonPath, workspace, this._projectRoot);
   }
 
