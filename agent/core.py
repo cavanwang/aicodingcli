@@ -451,8 +451,13 @@ class Agent:
         usage_data: dict | None = None
         in_thinking = False
         first_token_logged = False
+        chunk_count = 0
+        thinking_chunks = 0
+        text_chunks = 0
+        tool_chunks = 0
 
         for chunk in stream:
+            chunk_count += 1
             # 记录首 token 延迟
             if not first_token_logged and api_start_time is not None:
                 first_token_latency = (time.time() - api_start_time) * 1000
@@ -475,6 +480,7 @@ class Agent:
             # 思考内容（reasoning_content）：暗色显示
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
+                thinking_chunks += 1
                 if not in_thinking:
                     console.print("\n  💭 ", end="", highlight=False)
                     self._emit_stream("thinking_start")
@@ -485,6 +491,7 @@ class Agent:
 
             # 文本片段：实时打印
             if delta.content:
+                text_chunks += 1
                 if in_thinking:
                     console.print()  # 思考结束换行
                     self._emit_stream("thinking_end")
@@ -495,6 +502,7 @@ class Agent:
 
             # 工具调用片段：累积
             if delta.tool_calls:
+                tool_chunks += 1
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
                     if idx not in tool_calls_map:
@@ -519,6 +527,12 @@ class Agent:
         # 流结束，发送 thinking_end（如果还在思考中）
         if in_thinking:
             self._emit_stream("thinking_end")
+
+        # 记录流式统计信息
+        logger.info(
+            "[性能] 流式统计: chunks=%d, thinking=%d, text=%d, tools=%d",
+            chunk_count, thinking_chunks, text_chunks, tool_chunks
+        )
 
         tool_calls = (
             [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
