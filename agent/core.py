@@ -403,8 +403,9 @@ class Agent:
                 }
 
             try:
+                api_start_time = time.time()
                 stream = self._client.chat.completions.create(**request_kwargs)
-                content, tool_calls, usage = self._consume_stream(stream)
+                content, tool_calls, usage = self._consume_stream(stream, api_start_time)
             except Exception as e:
                 error_str = str(e).lower()
                 if "timeout" in error_str or "timed out" in error_str:
@@ -437,7 +438,7 @@ class Agent:
     # 流式消费
     # ──────────────────────────────────────────────
 
-    def _consume_stream(self, stream) -> tuple[str, list[dict], dict | None]:
+    def _consume_stream(self, stream, api_start_time: float | None = None) -> tuple[str, list[dict], dict | None]:
         """消费流式响应，实时打印文本，累积 tool_calls 片段，收集 usage。
 
         支持思考模式：reasoning_content 用暗色显示，不计入正式回复。
@@ -449,8 +450,16 @@ class Agent:
         tool_names_emitted: set[int] = set()  # 跟踪已发送的 tool_start 事件
         usage_data: dict | None = None
         in_thinking = False
+        first_token_logged = False
 
         for chunk in stream:
+            # 记录首 token 延迟
+            if not first_token_logged and api_start_time is not None:
+                first_token_latency = (time.time() - api_start_time) * 1000
+                logger.info("[性能] 首 token 延迟: %.0fms", first_token_latency)
+                self._emit_stream("perf", {"first_token_ms": first_token_latency})
+                first_token_logged = True
+
             # 收集 usage 信息（通常在最后一个 chunk 中）
             if hasattr(chunk, 'usage') and chunk.usage:
                 usage_data = {
