@@ -69,6 +69,10 @@ SYSTEM_PROMPT: str = os.getenv(
 )
 MAX_TOOL_ROUNDS: int = int(os.getenv("MAX_TOOL_ROUNDS", "10"))
 
+# 思考模式（qwen-plus 支持思维链/Chain-of-Thought）
+ENABLE_THINKING: bool = os.getenv("ENABLE_THINKING", "true").lower() == "true"
+THINKING_BUDGET: int = int(os.getenv("THINKING_BUDGET", "8192"))
+
 # 安全
 WORKSPACE_DIR: Path = Path(os.getenv("WORKSPACE_DIR", ".")).resolve()
 ALLOWED_COMMANDS: set[str] = set(

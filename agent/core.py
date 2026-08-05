@@ -376,14 +376,24 @@ class Agent:
                     highlight=False,
                 )
 
-            stream = self._client.chat.completions.create(
-                model=self._model,
-                messages=self._messages,
-                tools=TOOLS_SCHEMA,
-                tool_choice="auto",
-                stream=True,
-                stream_options={"include_usage": True},
-            )
+            # 构建 API 请求参数
+            request_kwargs = {
+                "model": self._model,
+                "messages": self._messages,
+                "tools": TOOLS_SCHEMA,
+                "tool_choice": "auto",
+                "stream": True,
+                "stream_options": {"include_usage": True},
+            }
+
+            # 思考模式（qwen-plus 支持思维链）
+            if config.ENABLE_THINKING:
+                request_kwargs["extra_body"] = {
+                    "enable_thinking": True,
+                    "thinking_budget": config.THINKING_BUDGET,
+                }
+
+            stream = self._client.chat.completions.create(**request_kwargs)
 
             content, tool_calls, usage = self._consume_stream(stream)
 
@@ -413,10 +423,15 @@ class Agent:
     # ──────────────────────────────────────────────
 
     def _consume_stream(self, stream) -> tuple[str, list[dict], dict | None]:
-        """消费流式响应，实时打印文本，累积 tool_calls 片段，收集 usage。"""
+        """消费流式响应，实时打印文本，累积 tool_calls 片段，收集 usage。
+
+        支持思考模式：reasoning_content 用暗色显示，不计入正式回复。
+        """
         collected_content = ""
+        thinking_content = ""
         tool_calls_map: dict[int, dict] = {}
         usage_data: dict | None = None
+        in_thinking = False
 
         for chunk in stream:
             # 收集 usage 信息（通常在最后一个 chunk 中）
@@ -431,8 +446,20 @@ class Agent:
             if delta is None:
                 continue
 
+            # 思考内容（reasoning_content）：暗色显示
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                if not in_thinking:
+                    console.print("\n  💭 ", end="", highlight=False)
+                    in_thinking = True
+                thinking_content += reasoning
+                console.print(reasoning, end="", highlight=False, style="dim")
+
             # 文本片段：实时打印
             if delta.content:
+                if in_thinking:
+                    console.print()  # 思考结束换行
+                    in_thinking = False
                 collected_content += delta.content
                 console.print(delta.content, end="", highlight=False)
 
@@ -563,9 +590,10 @@ class Agent:
                 action = self._recovery.handle_failure(func_name, result)
                 recovery_prompt = action["recovery_prompt"]
                 logger.warning(
-                    "命令执行失败，触发自愈 (attempt=%d/%d, error_type=%s)",
+                    "命令执行失败，触发自愈 (attempt=%d/%d, error_type=%s): %s",
                     self._recovery.attempts, self._recovery.max_attempts,
                     action["classification"]["error_type"],
+                    result[:200],
                 )
                 self._tracer.record_recovery(
                     func_name,
