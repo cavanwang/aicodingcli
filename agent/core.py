@@ -395,9 +395,15 @@ class Agent:
                     "thinking_budget": config.THINKING_BUDGET,
                 }
 
-            stream = self._client.chat.completions.create(**request_kwargs)
-
-            content, tool_calls, usage = self._consume_stream(stream)
+            try:
+                stream = self._client.chat.completions.create(**request_kwargs)
+                content, tool_calls, usage = self._consume_stream(stream)
+            except Exception as e:
+                error_str = str(e).lower()
+                if "timeout" in error_str or "timed out" in error_str:
+                    logger.error("API 调用超时 (30s): %s", e)
+                    return "⚠️ API 请求超时（30秒无响应），请检查网络连接或稍后重试。"
+                raise  # 其他异常继续抛出
 
             # 记录 Token 用量
             if usage:
@@ -712,6 +718,7 @@ def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
     client = OpenAI(
         api_key=config.API_KEY,
         base_url=config.BASE_URL,
+        timeout=30.0,  # 流式响应：30s 无数据则超时
     )
 
     # 构建 system prompt：基础 + 项目上下文 + 项目配置 + 项目记忆
