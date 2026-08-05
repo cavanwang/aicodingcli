@@ -214,26 +214,21 @@ def cmd_plan(agent) -> bool:
 
 
 def cmd_memory(agent) -> bool:
-    """/memory — 显示代码记忆摘要。"""
+    """/memory — 显示项目记忆文件内容。"""
     from rich.console import Console
+    from agent.project_memory import load_project_memory, get_memory_path
+
     console = Console()
+    memory_path = get_memory_path()
+    content = load_project_memory()
 
-    mem = agent.memory
-    lines = ["[bold]🧠 代码记忆[/]"]
-    lines.append(f"  已追踪文件: {mem.tracked_file_count}")
-    lines.append(f"  已记忆文件: {mem.file_count}")
-
-    if mem.file_summaries:
-        lines.append("\n  [dim]记忆详情：[/]")
-        for path, summary in list(mem.file_summaries.items())[:10]:
-            short = summary[:60] + "..." if len(summary) > 60 else summary
-            lines.append(f"    📄 {path}: {short}")
-        if len(mem.file_summaries) > 10:
-            lines.append(f"    ... 还有 {len(mem.file_summaries) - 10} 个文件")
+    if content:
+        console.print(f"\n[bold]📝 项目记忆[/] ({memory_path})\n")
+        console.print(content)
     else:
-        lines.append("  [dim]暂无记忆[/]")
+        console.print(f"\n[dim]项目记忆文件不存在: {memory_path}[/]")
+        console.print("[dim]Agent 会在首次对话时自动探索项目并生成记忆，或手动编辑该文件。[/]")
 
-    console.print("\n".join(lines))
     return True
 
 
