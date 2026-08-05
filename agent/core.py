@@ -580,6 +580,9 @@ class Agent:
                                 highlight=False,
                             )
 
+                    # 弹出仅用于确认逻辑的参数，不传给实际函数
+                    func_args.pop("source", None)
+
                     result = func(**func_args)
                     duration_ms = (time.time() - start_time) * 1000
                     self._tracer.record_tool_call(func_name, func_args, result, duration_ms, success=True)
