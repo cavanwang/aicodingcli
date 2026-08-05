@@ -1,9 +1,3 @@
-# Auto-generated fallback for optional dependency: pandas
-try:
-    import pandas as pandas
-except ImportError:  # pragma: no cover - optional dependency fallback
-    pandas = None
-
 """Agent 实体：封装 client、工具、记忆、流式循环。"""
 
 import json
