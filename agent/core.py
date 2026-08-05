@@ -454,7 +454,7 @@ class Agent:
                     console.print("\n  💭 ", end="", highlight=False)
                     in_thinking = True
                 thinking_content += reasoning
-                console.print(reasoning, end="", highlight=False, style="dim")
+                console.print(reasoning, end="", highlight=False, style="dim", markup=False)
 
             # 文本片段：实时打印
             if delta.content:
@@ -462,7 +462,7 @@ class Agent:
                     console.print()  # 思考结束换行
                     in_thinking = False
                 collected_content += delta.content
-                console.print(delta.content, end="", highlight=False)
+                console.print(delta.content, end="", highlight=False, markup=False)
 
             # 工具调用片段：累积
             if delta.tool_calls:
