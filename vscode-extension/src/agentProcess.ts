@@ -26,12 +26,52 @@ export interface AgentPongMsg {
 export interface AgentByeMsg {
   type: "bye";
 }
+// 流式消息类型
+export interface AgentThinkingStartMsg {
+  type: "thinking_start";
+}
+export interface AgentThinkingMsg {
+  type: "thinking";
+  content: string;
+}
+export interface AgentThinkingEndMsg {
+  type: "thinking_end";
+}
+export interface AgentTextMsg {
+  type: "text";
+  content: string;
+}
+export interface AgentToolStartMsg {
+  type: "tool_start";
+  name: string;
+}
+export interface AgentToolEndMsg {
+  type: "tool_end";
+  name: string;
+  result: string;
+}
+export interface TodoItem {
+  id: number;
+  content: string;
+  status: string;
+}
+export interface AgentTodoMsg {
+  type: "todo";
+  items: TodoItem[];
+}
 export type AgentMessage =
   | AgentReadyMsg
   | AgentDoneMsg
   | AgentErrorMsg
   | AgentPongMsg
-  | AgentByeMsg;
+  | AgentByeMsg
+  | AgentThinkingStartMsg
+  | AgentThinkingMsg
+  | AgentThinkingEndMsg
+  | AgentTextMsg
+  | AgentToolStartMsg
+  | AgentToolEndMsg
+  | AgentTodoMsg;
 
 /**
  * 管理 Python Agent 子进程的生命周期和通信。

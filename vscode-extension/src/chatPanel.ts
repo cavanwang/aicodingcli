@@ -246,6 +246,50 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       font-size: 0.85em;
       color: var(--vscode-descriptionForeground);
     }
+    /* 流式消息样式 */
+    .msg-streaming {
+      min-height: 20px;
+    }
+    .msg-status.thinking {
+      color: var(--vscode-descriptionForeground);
+      font-style: italic;
+      animation: pulse 1.5s infinite;
+    }
+    .msg-status.tool {
+      color: var(--vscode-charts-blue);
+      font-size: 0.8em;
+      margin: 4px 0;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    /* Todo 列表样式 */
+    .todo-container {
+      margin: 8px 0;
+    }
+    .todo-list {
+      background: var(--vscode-editorWidget-background);
+      border: 1px solid var(--vscode-editorWidget-border);
+      border-radius: 6px;
+      padding: 8px 12px;
+    }
+    .todo-title {
+      font-weight: bold;
+      margin-bottom: 6px;
+      color: var(--vscode-foreground);
+    }
+    .todo-item {
+      padding: 3px 0;
+      font-size: 0.9em;
+    }
+    .todo-item.done {
+      color: var(--vscode-descriptionForeground);
+      text-decoration: line-through;
+    }
+    .todo-item.in_progress {
+      color: var(--vscode-charts-blue);
+    }
     #input-area {
       display: flex;
       gap: 6px;
@@ -305,6 +349,11 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     // 消息历史（内存中保持）
     let messageHistory = [];
 
+    // 流式消息状态
+    let streamingMsgEl = null;
+    let streamingContent = '';
+    let isThinking = false;
+
     function addMessage(text, className, saveToHistory = true) {
       const div = document.createElement('div');
       div.className = 'msg ' + className;
@@ -331,6 +380,72 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       if (saveToHistory) {
         messageHistory.push({ text, className });
       }
+    }
+
+    // 创建或获取流式消息元素
+    function getOrCreateStreamingEl() {
+      if (!streamingMsgEl) {
+        streamingMsgEl = document.createElement('div');
+        streamingMsgEl.className = 'msg msg-agent msg-streaming';
+        streamingContent = '';
+        messagesEl.appendChild(streamingMsgEl);
+      }
+      return streamingMsgEl;
+    }
+
+    // 更新流式消息内容
+    function updateStreamingContent(html) {
+      const el = getOrCreateStreamingEl();
+      el.innerHTML = html;
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // 添加内容到流式消息
+    function appendToStreaming(content, className) {
+      const el = getOrCreateStreamingEl();
+      streamingContent += content;
+      // 简单的 HTML 转义
+      const escaped = streamingContent
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      el.innerHTML = escaped;
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // 添加状态指示器
+    function addStatusToStreaming(statusText, statusClass) {
+      const el = getOrCreateStreamingEl();
+      const statusEl = document.createElement('div');
+      statusEl.className = 'msg-status ' + statusClass;
+      statusEl.textContent = statusText;
+      el.appendChild(statusEl);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // 完成流式消息
+    function finalizeStreaming(finalText) {
+      if (streamingMsgEl) {
+        streamingMsgEl.innerHTML = '';
+        streamingMsgEl.textContent = finalText;
+        // 添加复制按钮
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'copy-btn';
+        copyBtn.textContent = '📋 复制';
+        copyBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(finalText).then(() => {
+            copyBtn.textContent = '✅ 已复制';
+            setTimeout(() => { copyBtn.textContent = '📋 复制'; }, 1500);
+          });
+        });
+        streamingMsgEl.appendChild(copyBtn);
+        messageHistory.push({ text: finalText, className: 'msg-agent' });
+      }
+      streamingMsgEl = null;
+      streamingContent = '';
+      isThinking = false;
     }
 
     function clearMessages() {
@@ -376,7 +491,12 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           addMessage('✅ 已连接 (模型: ' + msg.model + ')', 'msg-status');
           break;
         case 'done':
-          addMessage(msg.reply, 'msg-agent');
+          // 完成流式消息
+          if (streamingMsgEl) {
+            finalizeStreaming(msg.reply);
+          } else {
+            addMessage(msg.reply, 'msg-agent');
+          }
           sendBtn.disabled = false;
           break;
         case 'error':
@@ -404,6 +524,48 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
             addMessage(m.text, m.className, false);
           }
           messageHistory = msg.messages;
+          break;
+
+        // 流式消息处理
+        case 'thinking_start':
+          isThinking = true;
+          addStatusToStreaming('💭 思考中...', 'thinking');
+          break;
+        case 'thinking':
+          // 思考内容（可选：显示或忽略）
+          break;
+        case 'thinking_end':
+          isThinking = false;
+          break;
+        case 'text':
+          // 文本内容流式显示
+          appendToStreaming(msg.content, 'text');
+          break;
+        case 'tool_start':
+          // 工具调用开始
+          addStatusToStreaming('🔧 调用工具: ' + msg.name, 'tool');
+          break;
+        case 'tool_end':
+          // 工具调用结束（可选：显示结果摘要）
+          break;
+        case 'todo':
+          // Todo 列表更新
+          if (msg.items && msg.items.length > 0) {
+            var todoItems = msg.items.map(function(item) {
+              var icon = item.status === 'done' ? '✅' : item.status === 'in_progress' ? '🔄' : '⏳';
+              return '<div class="todo-item ' + item.status + '">' + icon + ' ' + item.content + '</div>';
+            }).join('');
+            var todoHtml = '<div class="todo-list">' +
+              '<div class="todo-title">📋 任务列表</div>' +
+              todoItems +
+              '</div>';
+            var el = getOrCreateStreamingEl();
+            var todoEl = document.createElement('div');
+            todoEl.className = 'todo-container';
+            todoEl.innerHTML = todoHtml;
+            el.appendChild(todoEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+          }
           break;
 
         case 'memory_confirm':

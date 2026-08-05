@@ -40,12 +40,14 @@ class Agent:
         confirm_fn=None,
         max_result_len: int | None = None,
         debug: bool = False,
+        stream_callback=None,
     ):
         self._client = client
         self._model = model
         self._max_rounds = max_rounds
         self._confirm = confirm_fn
         self._debug = debug
+        self._stream_callback = stream_callback  # 流式回调：用于 server 模式实时推送事件
         self._max_result_len = (
             max_result_len
             if max_result_len is not None
@@ -128,6 +130,11 @@ class Agent:
     def mcp(self) -> MCPManager:
         """获取 MCP 客户端管理器。"""
         return self._mcp
+
+    def _emit_stream(self, event_type: str, data: dict | None = None) -> None:
+        """发送流式事件到回调函数（如果有）。"""
+        if self._stream_callback:
+            self._stream_callback(event_type, data or {})
 
     def init_mcp(self, server_configs: list[dict]) -> int:
         """初始化 MCP 连接，注册工具。返回注册的工具数。"""
@@ -434,10 +441,12 @@ class Agent:
         """消费流式响应，实时打印文本，累积 tool_calls 片段，收集 usage。
 
         支持思考模式：reasoning_content 用暗色显示，不计入正式回复。
+        支持流式回调：实时推送事件到 VS Code 扩展。
         """
         collected_content = ""
         thinking_content = ""
         tool_calls_map: dict[int, dict] = {}
+        tool_names_emitted: set[int] = set()  # 跟踪已发送的 tool_start 事件
         usage_data: dict | None = None
         in_thinking = False
 
@@ -459,17 +468,21 @@ class Agent:
             if reasoning:
                 if not in_thinking:
                     console.print("\n  💭 ", end="", highlight=False)
+                    self._emit_stream("thinking_start")
                     in_thinking = True
                 thinking_content += reasoning
                 console.print(reasoning, end="", highlight=False, style="dim", markup=False)
+                self._emit_stream("thinking", {"content": reasoning})
 
             # 文本片段：实时打印
             if delta.content:
                 if in_thinking:
                     console.print()  # 思考结束换行
+                    self._emit_stream("thinking_end")
                     in_thinking = False
                 collected_content += delta.content
                 console.print(delta.content, end="", highlight=False, markup=False)
+                self._emit_stream("text", {"content": delta.content})
 
             # 工具调用片段：累积
             if delta.tool_calls:
@@ -487,8 +500,16 @@ class Agent:
                     if tc_delta.function:
                         if tc_delta.function.name:
                             entry["name"] += tc_delta.function.name
+                            # 工具名称确定后发送 tool_start 事件
+                            if idx not in tool_names_emitted and entry["name"]:
+                                self._emit_stream("tool_start", {"name": entry["name"]})
+                                tool_names_emitted.add(idx)
                         if tc_delta.function.arguments:
                             entry["arguments"] += tc_delta.function.arguments
+
+        # 流结束，发送 thinking_end（如果还在思考中）
+        if in_thinking:
+            self._emit_stream("thinking_end")
 
         tool_calls = (
             [tool_calls_map[i] for i in sorted(tool_calls_map.keys())]
@@ -654,6 +675,14 @@ class Agent:
             display = result[:200] + "..." if len(result) > 200 else result
             console.print(f"  📋 [green]{display}[/]", highlight=False)
 
+            # 发送 tool_end 事件
+            self._emit_stream("tool_end", {"name": func_name, "result": display})
+
+            # 检测 todo 相关工具，发送 todo 事件
+            if func_name in {"add_todo", "update_todo", "complete_todo", "delete_todo"}:
+                todo_items = [{"id": item.id, "content": item.content, "status": item.status} for item in self._todo.items]
+                self._emit_stream("todo", {"items": todo_items})
+
             if self._debug:
                 console.print(
                     f"  [dim]📄 结果长度: {len(result)} 字符[/]",
@@ -714,7 +743,7 @@ class Agent:
 # ──────────────────────────────────────────────────
 
 
-def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
+def create_agent(confirm_fn=None, debug: bool = False, stream_callback=None) -> Agent:
     """读取配置，创建并返回一个就绪的 Agent 实例。"""
     config.validate()
 
@@ -743,6 +772,7 @@ def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
         confirm_fn=confirm_fn,
         max_result_len=config.MAX_TOOL_RESULT_CHARS,
         debug=debug,
+        stream_callback=stream_callback,
     )
 
     # 初始化 MCP 连接（如果有配置）

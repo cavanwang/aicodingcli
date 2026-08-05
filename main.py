@@ -100,6 +100,25 @@ def run_server(workspace: str | None = None) -> None:
             return _confirm_approved
         # 其他工具自动批准
         return True
+
+    # 流式回调：将 Agent 事件转发给 VS Code 扩展
+    def _stream_callback(event_type: str, data: dict) -> None:
+        """将流式事件转换为 JSON 消息并发送。"""
+        if event_type == "thinking":
+            _emit({"type": "thinking", "content": data.get("content", "")})
+        elif event_type == "thinking_start":
+            _emit({"type": "thinking_start"})
+        elif event_type == "thinking_end":
+            _emit({"type": "thinking_end"})
+        elif event_type == "text":
+            _emit({"type": "text", "content": data.get("content", "")})
+        elif event_type == "tool_start":
+            _emit({"type": "tool_start", "name": data.get("name", "")})
+        elif event_type == "tool_end":
+            _emit({"type": "tool_end", "name": data.get("name", ""), "result": data.get("result", "")})
+        elif event_type == "todo":
+            _emit({"type": "todo", "items": data.get("items", [])})
+
     # 设置工作目录
     if workspace:
         os.environ["WORKSPACE_DIR"] = workspace
@@ -111,7 +130,7 @@ def run_server(workspace: str | None = None) -> None:
     # 创建 Agent（server 模式自动确认所有操作）
     from agent import create_agent
     logger.info("[Server] 启动: workspace=%s", workspace or ".")
-    agent = create_agent(confirm_fn=_server_confirm_fn, debug=False)
+    agent = create_agent(confirm_fn=_server_confirm_fn, debug=False, stream_callback=_stream_callback)
 
     # 发送就绪消息
     _emit({"type": "ready", "model": agent._model, "workspace": workspace or "."})
