@@ -3,6 +3,7 @@
 注意：当前为轻量实现，不处理嵌套作用域、闭包、动态属性访问（如 getattr(x, y)）。
 '''
 
+
 import ast
 import re
 from pathlib import Path

@@ -1,10 +1,5 @@
 # agent/context.py
 
-# Auto-generated fallback for optional dependency: pandas
-try:
-    import pandas as pandas
-except ImportError:  # pragma: no cover - optional dependency fallback
-    pandas = None
 
 import tiktoken
 

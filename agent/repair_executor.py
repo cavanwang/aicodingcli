@@ -81,17 +81,7 @@ def _repair_dependency(classification: dict[str, Any]) -> str:
                 )
                 if file_patch:
                     patch_result = f"{patch_result}\n{file_patch}"
-        else:
-            for candidate in sorted(config.WORKSPACE_DIR.rglob("*.py")):
-                if candidate.is_file() and ".venv" not in candidate.parts:
-                    file_patch = _patch_python_import_fallback(
-                        candidate,
-                        module_name,
-                        target_line=target_line,
-                    )
-                    if file_patch:
-                        patch_result = f"{patch_result}\n{file_patch}"
-                        break
+        # 没有具体报错文件路径时，只添加到 requirements.txt，不扫描所有文件
 
         return patch_result or "未能从错误输出中解析出缺失模块名。"
 
