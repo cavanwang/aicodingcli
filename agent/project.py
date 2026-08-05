@@ -499,13 +499,94 @@ _MAX_OVERVIEW_LINES = 20
 
 
 def _extract_module_summary(file_path: Path) -> list[str]:
-    """从 Python/JS/TS 文件中提取 import 和 def/class 签名。"""
+    """从 Python/JS/TS 文件中提取 import 和 def/class 签名（AST 增强版）。"""
     try:
-        lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        source = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception:
         return []
 
     summary: list[str] = []
+
+    # ✅ Python 文件：优先使用 AST 解析（更准确）
+    if file_path.suffix == ".py":
+        try:
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                # Import statements
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            summary.append(f"import {alias.name}" + (f" as {alias.asname}" if alias.asname else ""))
+                    else:  # ImportFrom
+                        names = ", ".join([
+                            alias.name + (f" as {alias.asname}" if alias.asname else "")
+                            for alias in node.names
+                        ])
+                        summary.append(f"from {node.module} import {names}")
+                # Function definitions
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    # Build signature
+                    sig = f"{'async ' if isinstance(node, ast.AsyncFunctionDef) else ''}def {node.name}"
+                    # Parameters
+                    params = []
+                    for arg in node.args.args:
+                        param = arg.arg
+                        if arg.annotation:
+                            # Handle annotation like 'str' or 'Optional[int]'
+                            ann_str = ast.unparse(arg.annotation) if hasattr(ast, 'unparse') else "Any"
+                            param += f": {ann_str}"
+                        params.append(param)
+                    # Add *args, **kwargs
+                    if node.args.vararg:
+                        params.append(f"*{node.args.vararg.arg}")
+                    if node.args.kwarg:
+                        params.append(f"**{node.args.kwarg.arg}")
+                    # Return annotation
+                    if node.returns:
+                        ret_ann = ast.unparse(node.returns) if hasattr(ast, 'unparse') else "Any"
+                        sig += f"({', '.join(params)}) -> {ret_ann}"
+                    else:
+                        sig += f"({', '.join(params)})"
+                    summary.append(sig)
+                    
+                    # Docstring
+                    if ast.get_docstring(node):
+                        doc = ast.get_docstring(node).strip().split("\n")[0]
+                        if len(doc) > 60:
+                            doc = doc[:57] + "..."
+                        summary.append(f"    # {doc}")
+                # Class definitions
+                elif isinstance(node, ast.ClassDef):
+                    bases = []
+                    for base in node.bases:
+                        bases.append(ast.unparse(base) if hasattr(ast, 'unparse') else str(base))
+                    sig = f"class {node.name}" + (f"({', '.join(bases)})" if bases else "")
+                    summary.append(sig)
+                    
+                    # Docstring
+                    if ast.get_docstring(node):
+                        doc = ast.get_docstring(node).strip().split("\n")[0]
+                        if len(doc) > 60:
+                            doc = doc[:57] + "..."
+                        summary.append(f"    # {doc}")
+                # Decorators
+                elif isinstance(node, ast.FunctionDef) and node.decorator_list:
+                    for dec in node.decorator_list:
+                        dec_str = ast.unparse(dec) if hasattr(ast, 'unparse') else str(dec)
+                        summary.append(f"@{dec_str}")
+                # Limit output
+                if len(summary) >= _MAX_OVERVIEW_LINES:
+                    summary.append("... (更多省略)")
+                    break
+            # Early exit after AST success
+            if summary:
+                return summary
+        except Exception:
+            # AST failed → fallback to text parsing
+            pass
+
+    # 🌐 Fallback: 文本解析（适用于所有语言）
+    lines = source.splitlines()
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -517,7 +598,7 @@ def _extract_module_summary(file_path: Path) -> list[str]:
         elif stripped.startswith("def ") or stripped.startswith("class "):
             summary.append(stripped)
         # JS/TS: import
-        elif stripped.startswith("import ") or stripped.startswith("const ") and "require" in stripped:
+        elif stripped.startswith("import ") or (stripped.startswith("const ") and "require" in stripped):
             summary.append(stripped)
         # JS/TS: export function / class
         elif stripped.startswith("export "):
