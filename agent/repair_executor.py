@@ -193,6 +193,52 @@ def _extract_target_path(details: str) -> str | None:
     return None
 
 
+def _find_import_insert_position(content: str) -> int:
+    """找到插入导入块的正确位置（在 docstring 和 from __future__ 之后）。
+
+    返回行号（0-indexed），表示应在此行之前插入。
+    """
+    lines = content.splitlines(keepends=True)
+    if not lines:
+        return 0
+
+    pos = 0
+
+    # 跳过开头的空行和注释
+    while pos < len(lines) and (lines[pos].strip() == "" or lines[pos].strip().startswith("#")):
+        pos += 1
+
+    # 跳过模块 docstring（""" 或 '''）
+    if pos < len(lines):
+        stripped = lines[pos].strip()
+        if stripped.startswith('"""') or stripped.startswith("'''"):
+            quote = stripped[:3]
+            # 单行 docstring
+            if stripped.count(quote) >= 2 and len(stripped) > 3:
+                pos += 1
+            else:
+                # 多行 docstring，找到结束标记
+                pos += 1
+                while pos < len(lines):
+                    if quote in lines[pos]:
+                        pos += 1
+                        break
+                    pos += 1
+
+    # 跳过 from __future__ 导入
+    while pos < len(lines):
+        stripped = lines[pos].strip()
+        if stripped == "" or stripped.startswith("#"):
+            pos += 1
+            continue
+        if stripped.startswith("from __future__"):
+            pos += 1
+            continue
+        break
+
+    return pos
+
+
 def _patch_python_import_fallback(
     path: Path,
     module_name: str,
@@ -240,7 +286,10 @@ def _patch_python_import_fallback(
         f"    {alias} = None\n\n"
     )
 
-    new_content = import_block + content
+    # 找到正确的插入位置：在 docstring 和 from __future__ 之后
+    insert_pos = _find_import_insert_position(content)
+    lines = content.splitlines(keepends=True)
+    new_content = "".join(lines[:insert_pos]) + import_block + "".join(lines[insert_pos:])
     path.write_text(new_content, encoding="utf-8")
     return f"已为 Python 文件补丁导入兜底：{path.relative_to(config.WORKSPACE_DIR)}"
 
