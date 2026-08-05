@@ -66,7 +66,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       ],
     };
 
-    webviewView.webview.html = this._getHtml();
+    webviewView.webview.html = this._getHtml(webviewView.webview);
     logger.log("[ChatPanel] WebView 已就绪");
 
     // 监听 WebView 发来的消息
@@ -196,13 +196,17 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   /**
    * 生成 WebView HTML。
    */
-  private _getHtml(): string {
+  private _getHtml(webview: vscode.Webview): string {
+    // markdown-it 库通过 localResourceRoots 加载（CSP 禁止外部 CDN）
+    const mdUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "media", "markdown-it.min.js"),
+    );
     return `<!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline' ${mdUri};">
   <title>AI Coding Chat</title>
   <style>
     body {
@@ -386,6 +390,87 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       opacity: 0.5;
       cursor: not-allowed;
     }
+    /* Markdown 渲染样式（仅作用于 Agent 消息） */
+    .msg-md p { margin: 4px 0; }
+    .msg-md h1, .msg-md h2, .msg-md h3, .msg-md h4 {
+      margin: 8px 0 4px 0;
+      line-height: 1.3;
+    }
+    .msg-md h1 { font-size: 1.15em; }
+    .msg-md h2 { font-size: 1.08em; }
+    .msg-md h3, .msg-md h4 { font-size: 1em; }
+    .msg-md ul, .msg-md ol { margin: 4px 0; padding-left: 20px; }
+    .msg-md li { margin: 2px 0; }
+    .msg-md code {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 0.9em;
+      background: var(--vscode-textCodeBlock-background);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .msg-md pre {
+      background: var(--vscode-textCodeBlock-background);
+      border: 1px solid var(--vscode-editorWidget-border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      overflow-x: auto;
+      margin: 6px 0;
+    }
+    .msg-md pre code {
+      background: transparent;
+      padding: 0;
+      white-space: pre;
+    }
+    .msg-md blockquote {
+      border-left: 3px solid var(--vscode-descriptionForeground);
+      margin: 4px 0;
+      padding: 2px 8px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .msg-md table {
+      border-collapse: collapse;
+      margin: 6px 0;
+      font-size: 0.92em;
+    }
+    .msg-md th, .msg-md td {
+      border: 1px solid var(--vscode-editorWidget-border);
+      padding: 3px 8px;
+    }
+    .msg-md a {
+      color: var(--vscode-textLink-foreground);
+      text-decoration: none;
+    }
+    .msg-md hr {
+      border: none;
+      border-top: 1px solid var(--vscode-editorWidget-border);
+      margin: 8px 0;
+    }
+    /* 代码块头部：语言标签 + 复制按钮 */
+    .code-block { margin: 6px 0; }
+    .code-block pre { margin: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+    .code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--vscode-editorWidget-background);
+      border: 1px solid var(--vscode-editorWidget-border);
+      border-bottom: none;
+      border-radius: 4px 4px 0 0;
+      padding: 2px 8px;
+      font-size: 0.78em;
+      color: var(--vscode-descriptionForeground);
+    }
+    .code-copy {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--vscode-descriptionForeground);
+      font-size: 1em;
+      padding: 1px 4px;
+    }
+    .code-copy:hover {
+      color: var(--vscode-foreground);
+    }
   </style>
 </head>
 <body>
@@ -400,8 +485,19 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     <textarea id="input" placeholder="输入消息..." rows="1"></textarea>
     <button id="send-btn">发送</button>
   </div>
+  <script src="${mdUri}"></script>
   <script>
     const vscode = acquireVsCodeApi();
+
+    // Markdown 渲染器（仅 Agent 消息）；库加载失败时回退纯文本
+    var md = null;
+    if (window.markdownit) {
+      md = window.markdownit({ html: false, linkify: true, breaks: true });
+    }
+    function renderMd(text) {
+      if (!md) return escapeHtml(text);
+      try { return md.render(text); } catch (e) { return escapeHtml(text); }
+    }
     const messagesEl = document.getElementById('messages');
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send-btn');
@@ -423,7 +519,14 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     function addMessage(text, className, saveToHistory) {
       var div = document.createElement('div');
       div.className = 'msg ' + className;
-      div.textContent = text;
+      if (className === 'msg-agent') {
+        // Agent 消息：Markdown 渲染
+        div.classList.add('msg-md');
+        div.innerHTML = renderMd(text);
+        enhanceCodeBlocks(div);
+      } else {
+        div.textContent = text;
+      }
       if (className === 'msg-user' || className === 'msg-agent') {
         var copyBtn = document.createElement('button');
         copyBtn.className = 'copy-btn';
@@ -448,6 +551,35 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     // HTML 转义
     function escapeHtml(str) {
       return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
+    }
+    
+    // 为渲染出的代码块添加「语言标签 + 复制按钮」头部
+    function enhanceCodeBlocks(container) {
+      container.querySelectorAll('pre > code').forEach(function(codeEl) {
+        var pre = codeEl.parentElement;
+        if (pre.parentElement && pre.parentElement.classList.contains('code-block')) return;
+        var m = codeEl.className.match(/language-([\\w+#-]+)/);
+        var langEl = document.createElement('span');
+        langEl.textContent = m ? m[1] : 'code';
+        var btn = document.createElement('button');
+        btn.className = 'code-copy';
+        btn.textContent = '\ud83d\udccb \u590d\u5236';
+        btn.addEventListener('click', function() {
+          navigator.clipboard.writeText(codeEl.textContent).then(function() {
+            btn.textContent = '\u2705 \u5df2\u590d\u5236';
+            setTimeout(function() { btn.textContent = '\ud83d\udccb \u590d\u5236'; }, 1500);
+          });
+        });
+        var header = document.createElement('div');
+        header.className = 'code-header';
+        header.appendChild(langEl);
+        header.appendChild(btn);
+        var wrapper = document.createElement('div');
+        wrapper.className = 'code-block';
+        pre.parentNode.insertBefore(wrapper, pre);
+        wrapper.appendChild(header);
+        wrapper.appendChild(pre);
+      });
     }
 
     // 创建流式消息容器（含子区域）
@@ -504,11 +636,12 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 追加文本内容
+    // 追加文本内容（流式增量重渲染 Markdown）
     function appendText(content) {
       getOrCreateStreamingEl();
       textContent += content;
-      textAreaEl.innerHTML = escapeHtml(textContent);
+      textAreaEl.classList.add('msg-md');
+      textAreaEl.innerHTML = renderMd(textContent);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
@@ -530,9 +663,10 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     // 完成流式消息
     function finalizeStreaming(finalText) {
       if (streamingMsgEl) {
-        // 清除所有子区域，替换为最终文本
-        streamingMsgEl.innerHTML = '';
-        streamingMsgEl.textContent = finalText;
+        // 清除所有子区域，替换为最终 Markdown 渲染结果
+        streamingMsgEl.classList.add('msg-md');
+        streamingMsgEl.innerHTML = renderMd(finalText);
+        enhanceCodeBlocks(streamingMsgEl);
         var copyBtn = document.createElement('button');
         copyBtn.className = 'copy-btn';
         copyBtn.textContent = '\ud83d\udccb \u590d\u5236';
