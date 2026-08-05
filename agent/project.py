@@ -1,5 +1,6 @@
 """启动时自动扫描项目结构，注入上下文。"""
 
+import ast
 import json
 import re
 from collections import Counter
