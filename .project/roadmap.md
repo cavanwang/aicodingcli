@@ -11,9 +11,9 @@
 1. **[P0] 任务 A：探索策略内化**（0.5~1 人日）✅ 已完成
    - [x] system prompt 注入迭代收敛搜索法 + 修改前探索准则 + 理解验证闭环
    - [x] 增强 find_files / search_in_files / read_file / list_directory 工具描述
-2. **[P0] 任务 B：符号导航工具化**（1~2 人日）
-   - [ ] 注册 find_definition / find_references 工具（基于已有 ast_analyzer.py）
-   - [ ] 新增 get_import_tree 工具（复用 project.py import 提取）
+2. **[P0] 任务 B：符号导航工具化**（1~2 人日）✅ 已完成
+   - [x] 注册 find_definition / find_references 工具（基于已有 ast_analyzer.py）
+   - [x] 新增 get_import_tree 工具（复用 project.py import 提取）
 3. **[P1] 任务 C：语义搜索 API 版**（3~5 人日）
    - [ ] AST 函数级分块 + DashScope text-embedding-v3
    - [ ] 内容哈希增量索引 + semantic_search 工具 + 关键词降级

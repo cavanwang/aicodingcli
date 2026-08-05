@@ -15,6 +15,7 @@ from agent.tools.batch_edit import batch_edit
 from agent.tools.shell import run_command
 from agent.tools.search import search_in_files
 from agent.tools.find_files import find_files
+from agent.tools.symbol_nav import find_definition, find_references, get_import_tree
 from agent.tools.verify import verify_changes
 from agent.tools.generate_tests import generate_tests
 from agent.tools.task_tools import create_plan, next_step, complete_step, plan_status
@@ -202,6 +203,67 @@ _REGISTRY: list[dict] = [
                     },
                 },
                 "required": ["keyword"],
+            },
+        },
+    },
+    # ──────────────────────────────────────────────
+    # 符号导航
+    # ──────────────────────────────────────────────
+    {
+        "function": find_definition,
+        "requires_confirm": False,
+        "schema": {
+            "name": "find_definition",
+            "description": "按符号名查找定义位置（函数/类/模块级变量），基于 AST 精确匹配。需要修改某符号前先用它定位定义处；轻量实现，不处理动态属性访问",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "符号名，如 'compress_history'、'Agent'",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "可选，限定在单个文件内查找（相对路径），默认全项目",
+                    },
+                },
+                "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "function": find_references,
+        "requires_confirm": False,
+        "schema": {
+            "name": "find_references",
+            "description": "查找符号在所有 Python 文件中的引用位置。修改函数/类前先用它评估影响面（有哪些调用方）；轻量实现，仅匹配标识符引用",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "标识符，如 'compress_history'、'Agent'",
+                    },
+                },
+                "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "function": get_import_tree,
+        "requires_confirm": False,
+        "schema": {
+            "name": "get_import_tree",
+            "description": "查看一个 Python 文件的 import 关系：它导入哪些模块（正链）+ 哪些文件导入它（反链）。理解模块边界和影响面时使用",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "相对路径的 Python 文件，如 'agent/core.py'",
+                    },
+                },
+                "required": ["file_path"],
             },
         },
     },
