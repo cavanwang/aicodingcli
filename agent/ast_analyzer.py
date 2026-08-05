@@ -1,9 +1,3 @@
-# Auto-generated fallback for optional dependency: pandas
-try:
-    import pandas as pandas
-except ImportError:  # pragma: no cover - optional dependency fallback
-    pandas = None
-
 '''AST 静态分析工具：定义跳转与引用查找。
 
 注意：当前为轻量实现，不处理嵌套作用域、闭包、动态属性访问（如 getattr(x, y)）。
