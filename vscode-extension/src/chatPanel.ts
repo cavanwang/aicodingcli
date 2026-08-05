@@ -163,6 +163,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
   <title>AI Coding Chat</title>
   <style>
     body {
@@ -407,7 +408,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
     // HTML 转义
     function escapeHtml(str) {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\\n/g, '<br>');
     }
 
     // 创建流式消息容器（含子区域）
