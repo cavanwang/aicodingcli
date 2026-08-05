@@ -15,6 +15,7 @@ from agent.tools.task_tools import set_planner
 from agent.tools.memory_tools import set_memory
 from agent.project import build_context
 from agent.project_config import build_project_prompt
+from agent.project_memory import build_project_memory_prompt
 from agent.tracer import ExecutionTracer
 from agent.usage import UsageTracker
 from agent.todo import TodoList
@@ -707,11 +708,16 @@ def create_agent(confirm_fn=None, debug: bool = False) -> Agent:
         base_url=config.BASE_URL,
     )
 
-    # 构建 system prompt：基础 + 项目上下文 + 项目配置
+    # 构建 system prompt：基础 + 项目上下文 + 项目配置 + 项目记忆
     project_prompt = build_project_prompt(config.WORKSPACE_DIR)
     system_prompt = config.SYSTEM_PROMPT + "\n\n" + build_context()
     if project_prompt:
         system_prompt += "\n\n" + project_prompt
+
+    # 加载项目记忆（跨会话持久化）
+    memory_prompt = build_project_memory_prompt(config.WORKSPACE_DIR)
+    if memory_prompt:
+        system_prompt += "\n\n" + memory_prompt
 
     agent = Agent(
         client=client,

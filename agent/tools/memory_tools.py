@@ -9,6 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from agent.memory import CodeMemory
+from agent.project_memory import (
+    save_project_memory as _save_project_memory,
+    append_project_memory as _append_project_memory,
+)
 
 # 模块级 memory 引用，由 Agent 初始化时注入
 _memory: CodeMemory | None = None
@@ -100,3 +104,27 @@ def review_changes(format: str = "text") -> str:
     if format == "json":
         return result.to_json()
     return reviewer.format_report(result)
+
+
+def save_memory(action: str, content: str = "", section: str = "") -> str:
+    """保存或追加项目记忆到 .agent/memory.md 文件。
+
+    项目记忆是跨会话持久化的 Markdown 文件，用于记录项目架构、模块职责、
+    编码规范、踩坑经验等。下次会话启动时自动加载到 system prompt。
+
+    Args:
+        action: 操作类型，"save"（覆盖保存）或 "append"（追加/更新章节）
+        content: 记忆内容（Markdown 格式）
+        section: 章节标题（仅 append 模式使用），如 "## 模块职责"
+    """
+    if action == "save":
+        if not content:
+            return "❌ save 操作需要 content 参数"
+        return _save_project_memory(content)
+
+    if action == "append":
+        if not section or not content:
+            return "❌ append 操作需要 section 和 content 参数"
+        return _append_project_memory(section, content)
+
+    return f"❌ 未知操作: {action}，可选: save, append"

@@ -18,7 +18,7 @@ from agent.tools.find_files import find_files
 from agent.tools.verify import verify_changes
 from agent.tools.generate_tests import generate_tests
 from agent.tools.task_tools import create_plan, next_step, complete_step, plan_status
-from agent.tools.memory_tools import update_memory, review_changes
+from agent.tools.memory_tools import update_memory, review_changes, save_memory
 from agent.tools.todo_tools import add_todo, update_todo, list_todos, complete_todo
 from agent.tools.git_ops import (
     git_checkpoint,
@@ -508,6 +508,36 @@ _REGISTRY: list[dict] = [
                     },
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "function": save_memory,
+        "requires_confirm": False,
+        "schema": {
+            "name": "save_memory",
+            "description": (
+                "保存项目记忆到 .agent/memory.md 文件（跨会话持久化）。"
+                "用于记录项目架构、模块职责、编码规范、踩坑经验等。"
+                "下次会话启动时自动加载到 system prompt。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "操作类型: save（覆盖保存）或 append（追加/更新章节）",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "记忆内容（Markdown 格式）",
+                    },
+                    "section": {
+                        "type": "string",
+                        "description": "章节标题（仅 append 模式使用），如 '## 模块职责'",
+                    },
+                },
+                "required": ["action"],
             },
         },
     },
