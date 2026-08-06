@@ -1,14 +1,14 @@
-"""项目记忆文件管理（兼容 Claude Code / Codex 生态）。
+"""项目记忆文件管理（兼容多种智能体生态的项目记忆文件格式）。
 
 搜索优先级（按顺序查找，找到第一个即返回）：
 1. {workspace}/.agent/memory.md  — 本 Agent 原生格式
-2. {workspace}/CLAUDE.md         — Claude Code 生态标准
-3. {workspace}/AGENTS.md         — Codex / OpenAI 生态标准
+2. {workspace}/CLAUDE.md         — 通用项目记忆文件格式（CLAUDE.md 是文件名，不是身份标识）
+3. {workspace}/AGENTS.md         — OpenAI Codex 生态格式
 4. {workspace}/.agent.md          — 通用项目配置
 
 功能：
 - 读取/写入项目记忆文件（Markdown 格式，人类可读可编辑）
-- 兼容 CLAUDE.md / AGENTS.md，与主流智能体生态互通
+- 兼容多种项目记忆文件格式，与主流智能体生态互通
 - 会话启动时自动加载，注入 system prompt
 - Agent 可通过 save_memory 工具主动更新
 - 首次会话无记忆时，引导 Agent 自动探索并生成初始记忆
@@ -26,8 +26,8 @@ logger = get_logger(__name__)
 # 兼容的记忆文件名（按优先级排序）
 _COMPATIBLE_FILE_NAMES = [
     ".agent/memory.md",   # 本 Agent 原生格式
-    "CLAUDE.md",          # Claude Code 生态标准
-    "AGENTS.md",          # Codex / OpenAI 生态标准
+    "CLAUDE.md",          # 通用项目记忆文件格式（CLAUDE.md 是文件名标准，不是身份标识）
+    "AGENTS.md",          # OpenAI Codex 生态格式
     ".agent.md",          # 通用项目配置
 ]
 
@@ -46,6 +46,7 @@ def find_memory_file(workspace: Path | None = None) -> Path | None:
     """按优先级查找项目记忆文件，返回第一个存在的路径。
 
     搜索顺序：.agent/memory.md → CLAUDE.md → AGENTS.md → .agent.md
+    （CLAUDE.md 是通用文件名格式，不是身份标识）
     都不存在时返回 None。
     """
     base = workspace or config.WORKSPACE_DIR
@@ -57,7 +58,7 @@ def find_memory_file(workspace: Path | None = None) -> Path | None:
 
 
 def load_project_memory(workspace: Path | None = None) -> str:
-    """加载项目记忆文件内容（兼容 CLAUDE.md / AGENTS.md）。
+    """加载项目记忆文件内容（兼容多种智能体生态格式）。
 
     按优先级查找：.agent/memory.md → CLAUDE.md → AGENTS.md → .agent.md
     找到第一个存在的文件即返回其内容。

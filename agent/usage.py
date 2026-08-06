@@ -18,7 +18,16 @@ USAGE_DIR = Path.home() / ".aicoding" / "usage"
 
 # 模型价格表（美元 / 百万 token）
 # 格式: {模型名: (input_price, output_price)}
+# 注：qwen 系列为本项目实际使用的模型，其他模型仅作对比参考
 MODEL_PRICES: dict[str, tuple[float, float]] = {
+    # 通义千问系列（本项目实际使用）
+    "qwen-plus": (0.80, 2.00),
+    "qwen-turbo": (0.30, 0.60),
+    "qwen-max": (2.00, 6.00),
+    "qwen3-max": (2.00, 6.00),
+    "qwen3.7-max": (2.00, 8.00),
+    "qwen3.8-max": (2.00, 8.00),
+    # 其他模型（对比参考）
     "gpt-4o": (2.50, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4-turbo": (10.00, 30.00),
@@ -26,9 +35,6 @@ MODEL_PRICES: dict[str, tuple[float, float]] = {
     "claude-3-5-sonnet": (3.00, 15.00),
     "claude-3-haiku": (0.25, 1.25),
     "claude-3-opus": (15.00, 75.00),
-    "qwen-plus": (0.80, 2.00),
-    "qwen-turbo": (0.30, 0.60),
-    "qwen-max": (2.00, 6.00),
     "deepseek-chat": (0.14, 0.28),
     "deepseek-coder": (0.14, 0.28),
 }

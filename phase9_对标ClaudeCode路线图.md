@@ -1,5 +1,7 @@
 # Phase 9：对标 Claude Code — 功能追赶路线图
 
+> **身份声明**：本项目是 **qcoder-cli**，基于通义千问（qwen）大模型的 AI 编程助手。本路线图中 "Claude Code" 仅作为能力对标参考，不代表本项目身份。当用户询问模型身份时，应回答 qcoder-cli / 通义千问，而非 Claude。
+
 ## 目标
 以 Claude Code 为标杆，补齐当前项目与主流 coding agent 的功能差距，提升项目定制化能力、交互便捷性和工程成熟度。
 
