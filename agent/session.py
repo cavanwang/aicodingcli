@@ -33,8 +33,8 @@ def _session_path(session_id: str) -> Path:
 
 
 def _generate_session_id() -> str:
-    """基于时间戳生成唯一 session_id。"""
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
+    """基于时间戳生成唯一 session_id（含毫秒，避免同秒内重复）。"""
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:19]  # 截取到毫秒
 
 
 def _extract_preview(messages: list[dict]) -> str:
@@ -61,7 +61,9 @@ def save_session(
 
     Args:
         agent: Agent 实例
-        session_id: 会话 ID，为 None 时自动生成
+        session_id: 会话 ID，为 None 时：
+            - 若 agent._session_id 已有值则复用（同一会话写同一文件）
+            - 否则自动生成新的 session_id 并写回 agent._session_id
 
     Returns:
         保存的文件路径
@@ -69,7 +71,12 @@ def save_session(
     SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
     if session_id is None:
+        session_id = getattr(agent, "_session_id", None)
+    if not session_id:
         session_id = _generate_session_id()
+    # 回写到 Agent，确保下次调用复用同一 session_id
+    if hasattr(agent, "_session_id"):
+        agent._session_id = session_id
 
     path = _session_path(session_id)
     now = datetime.now().isoformat()

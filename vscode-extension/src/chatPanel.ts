@@ -14,11 +14,15 @@ interface ChatMessage {
   className: string;
 }
 
+/** globalState 键名 */
+const HISTORY_KEY = "aicoding.chatHistory";
+
 export class ChatPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "aicoding.chatView";
   private _view?: vscode.WebviewView;
   private _agent: AgentProcess;
   private _projectRoot: string;
+  private _globalState: vscode.Memento & { setKeysForSync?(keys: readonly string[]): void };
   /** 当前 Agent 进程的工作目录（用于检测项目切换） */
   private _currentWorkspace = "";
   /** 当前会话消息历史 */
@@ -27,16 +31,29 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     projectRoot: string,
+    globalState: vscode.Memento & { setKeysForSync?(keys: readonly string[]): void },
   ) {
     this._projectRoot = projectRoot;
+    this._globalState = globalState;
+    // 将 history key 标记为需要跨设备同步
+    if (this._globalState.setKeysForSync) {
+      this._globalState.setKeysForSync([HISTORY_KEY]);
+    }
+    // 从 globalState 恢复历史消息
+    const saved = this._globalState.get<ChatMessage[]>(HISTORY_KEY, []);
+    if (saved && saved.length > 0) {
+      this._messages = saved;
+      logger.log(`[ChatPanel] 从 globalState 恢复 ${saved.length} 条历史消息`);
+    }
     this._agent = new AgentProcess();
 
     // 监听 Agent 消息，转发到 WebView
     this._agent.on("message", (msg: AgentMessage) => {
       logger.log(`[ChatPanel] Agent → WebView: ${msg.type}`);
-      // 保存 Agent 回复到历史
+      // 保存 Agent 回复到历史，并持久化到 globalState
       if (msg.type === "done") {
         this._messages.push({ text: msg.reply, className: "msg-agent" });
+        this._persistMessages();
       }
       this._postToWebview(msg);
     });
@@ -82,8 +99,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
         case "userMessage":
           logger.log(`[ChatPanel] 用户消息: ${msg.text.substring(0, 100)}`);
-          // 保存用户消息到历史
+          // 保存用户消息到历史，并持久化到 globalState
           this._messages.push({ text: msg.text, className: "msg-user" });
+          this._persistMessages();
           this._ensureAgentRunning();
 
           // 获取当前编辑器上下文
@@ -104,6 +122,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           logger.log("[ChatPanel] 新建会话");
           this._stopAgent();
           this._messages = [];
+          this._persistMessages();
           this._postToWebview({ type: "sessionCleared" });
           break;
 
@@ -119,6 +138,14 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
       }
     });
+  }
+
+  /**
+   * 持久化消息历史到 globalState（跨会话保留）。
+   */
+  private _persistMessages(): void {
+    this._globalState.update(HISTORY_KEY, this._messages);
+    logger.log(`[ChatPanel] 消息已持久化 (${this._messages.length} 条)`);
   }
 
   /**

@@ -63,6 +63,9 @@ class Agent:
         )
         self._messages: list[dict] = [{"role": "system", "content": system_prompt}]
 
+        # 会话 ID：首次 save_session 时生成，后续复用，确保同一会话写同一文件
+        self._session_id: str | None = None
+
         # 自愈管理器：接管重试控制、历史记录、回滚保护
         def _do_rollback() -> str:
             fn = TOOL_FUNCTIONS.get("git_rollback")
@@ -170,8 +173,9 @@ class Agent:
         return 0
 
     def reset(self) -> None:
-        """清空对话历史，只保留 system prompt。"""
+        """清空对话历史，只保留 system prompt。同时重置 session_id 使下次保存创建新会话文件。"""
         self._messages = [self._messages[0]]
+        self._session_id = None
 
     # ──────────────────────────────────────────────
     # 历史压缩

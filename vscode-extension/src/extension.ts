@@ -23,6 +23,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const chatProvider = new ChatPanelProvider(
     context.extensionUri,
     projectRoot,
+    context.globalState,
   );
 
   context.subscriptions.push(

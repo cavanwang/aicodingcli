@@ -211,6 +211,9 @@ def run_server(workspace: str | None = None) -> None:
                 reply = agent.chat(user_message)
                 _emit({"type": "done", "reply": reply})
                 logger.info("[Server] done: %d 字符", len(reply))
+                # 每次 chat 完成后自动保存会话（复用 session_id 确保同一会话写同一文件）
+                from agent.session import save_session
+                save_session(agent)
             except Exception as e:
                 logger.error("[Server] chat 异常: %s", e, exc_info=True)
                 _emit({"type": "error", "message": f"执行出错: {e}"})
