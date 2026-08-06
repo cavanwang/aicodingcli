@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import platform
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -49,6 +50,8 @@ class SandboxExecutor:
         1. allow default — 默认放行（读取系统库等）
         2. deny file-read* HOME — 先禁止读取 $HOME 下所有文件
         3. allow file-read* 工作目录 — 再放行工作目录（可能在 $HOME 外）
+           注：正则用 (/.*)? 同时匹配目录本身，否则 pwd/ls/getcwd
+           读取目录本身时被 HOME deny 规则拦截
         4. allow file-read* Agent 项目目录和 Python 运行时 — 最后放行具体路径
         5. deny file-read* /etc — 禁止读取系统配置
         6. deny file-write* — 禁止一切写入
@@ -57,6 +60,11 @@ class SandboxExecutor:
         """
         home = Path.home().resolve()
         workspace = str(self.workspace_dir)
+
+        # 路径穿越防护：allow 规则叠加不含 ".." 的 lookahead 正则。
+        # 实测沙箱按未规范化的原始路径匹配，workspace/../x 会被
+        # workspace(/.*)? 字符串匹配放行，必须显式拒绝含 .. 的路径
+        no_traversal = r'^(?!.*\.\.).*$'
 
         # 收集需要放行的 Python 运行时路径
         runtime_paths = self._collect_runtime_paths()
@@ -70,13 +78,15 @@ class SandboxExecutor:
             f'(deny file-read* (regex #"{re.escape(str(home))}/.*"))',
             "",
             "; 再放行工作目录（可能在 $HOME 外，如 /tmp/agent-test）",
-            f'(allow file-read* (regex #"{re.escape(workspace)}/.*"))',
+            "; (/.*)? 同时匹配目录本身，保障 pwd/ls/getcwd 可用",
+            "; lookahead 拒绝含 .. 的路径，防止 workspace/../x 穿越",
+            f'(allow file-read* (regex #"{re.escape(workspace)}(/.*)?") (regex #"{no_traversal}"))',
             "",
             "; 最后放行 Agent 项目目录和 Python/Node 运行时路径",
         ]
 
         for rp in runtime_paths:
-            lines.append(f'(allow file-read* (regex #"{re.escape(rp)}/.*"))')
+            lines.append(f'(allow file-read* (regex #"{re.escape(rp)}(/.*)?"))')
 
         lines.extend([
             "",
@@ -87,8 +97,8 @@ class SandboxExecutor:
             "; ── 写入控制 ──",
             "; 禁止一切写入",
             "(deny file-write*)",
-            "; 仅放行写入工作目录",
-            f'(allow file-write* (regex #"{re.escape(workspace)}/.*"))',
+            "; 仅放行写入工作目录（含目录本身，保障 mkdir/新建文件；拒绝 .. 穿越）",
+            f'(allow file-write* (regex #"{re.escape(workspace)}(/.*)?") (regex #"{no_traversal}"))',
             "",
             "; ── 网络控制 ──",
             "; 完全禁止网络访问",
@@ -166,7 +176,10 @@ class SandboxExecutor:
             return self._execute_normal(command, timeout, cwd, preexec_fn)
 
         profile = self.build_profile()
-        sandboxed_cmd = f"sandbox-exec -p '{profile}' {command}"
+        # 关键：整个命令（含 shell 重定向/管道）必须放进沙箱内执行。
+        # 若写成 sandbox-exec -p '...' CMD > file，重定向由外层非沙箱
+        # shell 完成，写入限制会被完全绕过（实测可写穿到 $HOME）
+        sandboxed_cmd = f"sandbox-exec -p '{profile}' /bin/sh -c {shlex.quote(command)}"
 
         logger.debug("沙箱执行: %s", command[:100])
 
